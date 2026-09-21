@@ -125,10 +125,12 @@ export class SpeakerService {
     }
   }
 
-  get enabled(): boolean { return this.cfg.monitorEnabled && !!this.cfg.serviceToken; }
+  get enabled(): boolean { return this.cfg.monitorEnabled && !!this.cfg.userId; }
 
   get loggedIn(): boolean {
-    return !!(this.cfg.userId && this.cfg.serviceToken && this.cfg.ssecurity);
+    // 走 SongLoft 代理后，真正的令牌由 protocol 层管理；
+    // 此处只要有账号标识（userId）即可视为已登录。
+    return !!this.cfg.userId;
   }
 
   get status() {
@@ -232,6 +234,47 @@ export class SpeakerService {
   }
 
   /** 拉取账号下设备列表 */
+  /**
+   * 从 SongLoft 导入已登录的小米账号凭据。
+   *
+   * SongLoft 已完成小米登录并把账号信息落在 /songloft_data 下，
+   * 这里只取 userId（设备与播放能力已由 protocol 层走 SongLoft 接口）。
+   */
+  importCredentials(): { ok: boolean; userId?: string; error?: string } {
+    const dir = process.env.SONGLOFT_DATA || '/songloft_data';
+    const accountsFile = path.join(dir, 'jsplugins_data/miot/data/accounts');
+    try {
+      if (!fs.existsSync(accountsFile)) {
+        return { ok: false, error: `未找到 SongLoft 账号文件：${accountsFile}` };
+      }
+      const raw = fs.readFileSync(accountsFile, 'utf8');
+      let parsed: any = JSON.parse(raw);
+      // 文件是「JSON 字符串里再套 JSON」的双层结构
+      if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+
+      // 取第一个 logged_in / 有 user_id 的账号
+      const acc = list.find((x: any) => x && x.user_id) || null;
+      if (!acc) return { ok: false, error: 'SongLoft 账号列表中没有可用账号' };
+
+      this.cfg.userId = String(acc.user_id);
+      this.cfg.username = this.cfg.username || String(acc.account || acc.id || '');
+      // 令牌交由 protocol 层动态获取，这里留空以免误判
+      this.cfg.serviceToken = this.cfg.serviceToken || '';
+      this.cfg.ssecurity = this.cfg.ssecurity || '';
+      this.persist();
+
+      logger.info(
+        { userId: this.cfg.userId, account: maskAccount(this.cfg.username) },
+        '已从 SongLoft 导入音箱凭据',
+      );
+      return { ok: true, userId: this.cfg.userId };
+    } catch (e) {
+      logger.warn({ err: String(e) }, '导入 SongLoft 凭据失败');
+      return { ok: false, error: String(e) };
+    }
+  }
+
   async refreshDevices(): Promise<SpeakerDevice[]> {
     const cfg = this.minaCfg();
     if (!cfg) return [];
