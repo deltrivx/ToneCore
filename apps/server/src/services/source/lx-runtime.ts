@@ -353,18 +353,55 @@ export function loadLxScript(filePath: string, code: string): Promise<LxScriptIn
         async invoke(payload: Record<string, unknown>): Promise<unknown> {
           if (!requestHandler) throw new Error('脚本未注册 request 处理器');
           const requestKey = crypto.randomBytes(8).toString('hex');
+
+          // 洛雪协议里，脚本的 request 处理器是**同步返回 Promise** 的：
+          //     on(EVENT_NAMES.request, ({action, source, info}) => {
+          //       return handleGetMusicUrl(...)   // ← 这个返回值就是答案
+          //     })
+          //
+          // 我们此前只等脚本回叫 lx.send('request', {requestKey, data})，
+          // 而**绝大多数脚本根本不 send** —— 它们只 return。
+          // 于是每次调用都必然等到 30s 超时：这不是音源失效，是宿主没接住返回值。
+          // 实测「示例音源 / 稳定版音源 / 统一音乐源 / 肥猫」全部是 return 风格。
+          //
+          // 正确做法：**同时接受两条回填路径** ——
+          //   1) 处理器返回的 Promise（主流写法）
+          //   2) 脚本显式 send('request') 回填（少数脚本 / 兼容旧实现）
+          // 谁先到用谁，另一个自动作废。
           return await new Promise((res, rej) => {
-            const timer = setTimeout(() => {
-              pending.delete(requestKey);
-              rej(new Error('脚本响应超时(30s)'));
-            }, 30000);
-            pending.set(requestKey, { resolve: res, reject: rej, timer, expectId: requestKey });
-            try {
-              requestHandler!({ ...payload, requestKey });
-            } catch (e) {
+            let settled = false;
+            const done = (fn: () => void) => {
+              if (settled) return;
+              settled = true;
               clearTimeout(timer);
               pending.delete(requestKey);
-              rej(e as Error);
+              fn();
+            };
+
+            const timer = setTimeout(() => {
+              done(() => rej(new Error('脚本响应超时(30s)')));
+            }, 30000);
+            pending.set(requestKey, {
+              resolve: (v) => done(() => res(v)),
+              reject: (e) => done(() => rej(e)),
+              timer,
+              expectId: requestKey,
+            });
+
+            let ret: unknown;
+            try {
+              ret = requestHandler!({ ...payload, requestKey });
+            } catch (e) {
+              done(() => rej(e as Error));
+              return;
+            }
+
+            // 路径 1：处理器直接返回 Promise（洛雪主流写法）
+            if (ret && typeof (ret as Promise<unknown>).then === 'function') {
+              (ret as Promise<unknown>).then(
+                (v) => done(() => res(v)),
+                (e) => done(() => rej(e instanceof Error ? e : new Error(String(e)))),
+              );
             }
           });
         },
