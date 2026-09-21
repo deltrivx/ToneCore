@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🎵 ToneCore
+<img src="assets/icon.png" alt="ToneCore" width="160" height="160" />
+
+# ToneCore
 
 **一体化音乐中枢 · 音色核心**
 

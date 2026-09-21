@@ -13,8 +13,8 @@
   <Category>MediaApp:Music MediaServer:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/deltrivx/ToneCore/main/docker/tonecore.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/deltrivx/ToneCore/main/assets/icon.png</Icon>
-  <ExtraParams/>
+  <Icon>/mnt/user/icons/ToneCore.png</Icon>
+  <ExtraParams>--restart=unless-stopped --memory=1g --memory-swap=1g --cpus=1.5 --pids-limit=256 --log-opt max-size=20m --log-opt max-file=3</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>
