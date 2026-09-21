@@ -24,7 +24,11 @@ export const api = {
   play:        (kw, artist) => req('/api/play', { method: 'POST', body: { keyword: kw, artist } }),
   downloads:   () => req('/api/downloads'),
   audit:       (limit = 200) => req('/api/scraper/audit', { method: 'POST', body: { limit } }),
-  speaker:     () => req('/api/speaker'),
+  speaker:        () => req('/api/speaker'),
+  saveSpeaker:    (c) => req('/api/speaker/config', { method: 'POST', body: c }),
+  speakerDevices: () => req('/api/speaker/devices', { method: 'POST' }),
+  speakerPlay:    (deviceId, url) => req('/api/speaker/play', { method: 'POST', body: { deviceId, url } }),
+  speakerSay:     (deviceId, text) => req('/api/speaker/say', { method: 'POST', body: { deviceId, text } }),
 };
 
 export function useAsync(fn) {
