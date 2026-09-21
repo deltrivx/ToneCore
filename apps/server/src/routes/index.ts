@@ -146,9 +146,6 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
       needVerify: !!r.needVerify,
       notificationUrl: r.needVerify ? r.needVerify.notificationUrl : null,
       sign: r.needVerify ? r.needVerify._sign : null,
-      // 自动发码结果：needVerify 时告诉前端码是否真的发出去了
-      ticketSent: r.ticketSent ?? null,
-      ticketError: r.ticketError ?? null,
       error: r.error ?? null,
       status: d.speaker.status,
     };
@@ -166,30 +163,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     return { ok: r.ok, error: r.error ?? null, status: d.speaker.status };
   });
 
-  // 重新发送验证码（服务端代为请求小米验证页触发发码）
-  app.post('/api/speaker/sendcode', async (req) => {
-    const b = (req.body || {}) as { notificationUrl?: string };
-    const url = String(b.notificationUrl || '').trim();
-    if (!url) return { ok: false, error: '缺少验证链接，请重新登录' };
-    const r = await d.speaker.sendCode(url);
-    return { ok: r.ok, error: r.error ?? null };
-  });
-
   // 退出登录
-  // 从 SongLoft 导入已登录的小米凭据（跳过小米登录流程）
-  app.post('/api/speaker/import', async () => {
-    const svc: any = d.speaker;
-    if (!svc || typeof svc.importCredentials !== 'function') {
-      return { ok: false, error: '当前版本不支持凭据导入' };
-    }
-    const res = svc.importCredentials();
-    if (res.ok) {
-      // 导入成功后同步刷新一次设备列表
-      try { await svc.refreshDevices(); } catch { /* 忽略刷新失败 */ }
-    }
-    return { ok: res.ok, userId: res.userId ?? null, error: res.error ?? null, status: svc.status };
-  });
-
   app.post('/api/speaker/logout', async () => {
     d.speaker.logout();
     return { ok: true, status: d.speaker.status };

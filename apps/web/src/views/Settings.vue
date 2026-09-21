@@ -100,10 +100,7 @@
 
           <!-- 需要验证码 -->
           <div v-if="needVerify" class="space-y-3 rounded-lg bg-ink-800/60 p-3">
-            <div class="text-xs text-amber-400">
-              需要短信 / 邮箱验证码
-              <span class="text-slate-500">（验证码由服务端自动发送，在此直接填写即可）</span>
-            </div>
+            <div class="text-xs text-amber-400">需要短信 / 邮箱验证码</div>
             <div>
               <label class="tc-label">验证码</label>
               <input v-model="loginForm.code" class="tc-input font-mono text-xs"
@@ -111,9 +108,7 @@
             </div>
             <div class="flex gap-2">
               <button class="tc-btn-primary text-xs" :disabled="busy" @click="doVerify">提交验证码</button>
-              <button class="tc-btn text-xs" :disabled="sending" @click="doSendCode">
-                {{ sending ? '发送中…' : '重新发送验证码' }}
-              </button>
+              <a v-if="verifyUrl" :href="verifyUrl" target="_blank" class="tc-btn text-xs">打开验证页</a>
             </div>
           </div>
 
@@ -203,9 +198,8 @@ const spk = ref(null);
 const spkForm = ref({ monitorEnabled: false, pollInterval: 1, wakeWords: [] });
 const loginForm = ref({ username: '', password: '', code: '' });
 const needVerify = ref(false);
-const verifySign = ref('');
 const verifyUrl = ref('');
-const sending = ref(false);
+const verifySign = ref('');
 const busy = ref(false);
 const spkMsg = ref(null);
 const devices = ref([]);
@@ -246,11 +240,9 @@ async function doLogin() {
       await loadSpeaker();
     } else if (r && r.needVerify) {
       needVerify.value = true;
-      verifySign.value = r.sign || '';
       verifyUrl.value = r.notificationUrl || '';
-      spkMsg.value = r.ticketSent
-        ? { ok: true, text: '验证码已发送至你的手机 / 邮箱，请查收后填入下方' }
-        : { ok: false, text: '验证码发送失败：' + ((r.ticketError) || '请点「重新发送」重试') };
+      verifySign.value = r.sign || '';
+      spkMsg.value = { ok: false, text: '需要验证码，已发送至你的手机 / 邮箱' };
     } else {
       spkMsg.value = { ok: false, text: '登录失败：' + ((r && r.error) || '未知错误') };
     }
@@ -259,44 +251,17 @@ async function doLogin() {
   } finally { busy.value = false; }
 }
 
-async function doSendCode() {
-  if (!verifyUrl.value) {
-    spkMsg.value = { ok: false, text: '请先点「登录」获取验证会话' };
-    return;
-  }
-  sending.value = true; spkMsg.value = null;
-  try {
-    const r = await api.speakerSendCode(verifyUrl.value);
-    spkMsg.value = r && r.ok
-      ? { ok: true, text: '验证码已重新发送，请查收' }
-      : { ok: false, text: '发送失败：' + ((r && r.error) || '请稍后重试') };
-  } catch (e) {
-    spkMsg.value = { ok: false, text: '发送失败：' + e };
-  } finally { sending.value = false; }
-}
-
 async function doVerify() {
   busy.value = true; spkMsg.value = null;
   try {
-    const code = loginForm.value.code.trim();
-    if (!code) {
-      spkMsg.value = { ok: false, text: '请先填写收到的验证码' };
-      return;
-    }
-    if (!verifySign.value) {
-      spkMsg.value = { ok: false, text: '登录会话已过期，请重新点「登录」获取验证码' };
-      return;
-    }
     const r = await api.speakerVerify({
       username: loginForm.value.username.trim(),
       password: loginForm.value.password,
-      code,
+      code: loginForm.value.code.trim(),
       sign: verifySign.value,
     });
     if (r && r.ok) {
       needVerify.value = false;
-    verifyUrl.value = '';
-    verifySign.value = '';
       if (r.status) { spk.value = r.status; devices.value = r.status.devices || []; }
       spkMsg.value = { ok: true, text: '验证成功，已登录' };
       await loadSpeaker();
