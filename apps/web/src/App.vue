@@ -28,11 +28,11 @@
           @click="go(item.id)">
           <span class="w-4 text-center text-base leading-none">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
-          <!-- 正在播放的跳动指示 -->
-          <span v-if="item.id === 'now' && player.state.playing" class="tc-bars ml-auto">
+          <!-- 播放状态指示：挂在「音乐库」上（播放页已整合进曲库，不再单开一页） -->
+          <span v-if="item.id === 'library' && player.state.playing" class="tc-bars ml-auto">
             <i></i><i></i><i></i>
           </span>
-          <span v-else-if="item.id === 'now' && player.state.queue.length"
+          <span v-else-if="item.id === 'library' && player.state.queue.length"
                 class="ml-auto text-[10px] font-mono text-slate-600">
             {{ player.state.queue.length }}
           </span>
@@ -70,8 +70,7 @@
       <main class="flex-1 min-h-0 overflow-y-auto"
             :class="player.state.playUrl || player.state.queue.length ? 'pb-[76px] md:pb-[76px]' : ''">
         <div class="px-3 md:px-5 py-4">
-          <NowPlaying v-if="route === 'now'" />
-          <SearchView v-else-if="route === 'search'" />
+          <SearchView v-if="route === 'search'" />
           <Library v-else-if="route === 'library'" />
           <Sources v-else-if="route === 'sources'" />
           <Dashboard v-else-if="route === 'dash'" :health="health" />
@@ -105,7 +104,6 @@
 import { ref, computed, onMounted } from 'vue';
 import { api } from './composables/useApi.js';
 import { usePlayer } from './composables/usePlayer.js';
-import NowPlaying from './views/NowPlaying.vue';
 import SearchView from './views/SearchView.vue';
 import Dashboard from './views/Dashboard.vue';
 import Sources from './views/Sources.vue';
@@ -115,14 +113,18 @@ import MiniPlayer from './components/MiniPlayer.vue';
 import FullPlayer from './components/FullPlayer.vue';
 
 /**
- * 导航命名对齐主流音乐播放器：
- *   正在播放 / 搜索 / 音乐库 / 音源 / 状态 / 设置
- * 旧版把「总览」放首位、配置藏在右上角，操作路径长且不符合听歌习惯。
+ * 导航对齐主流音乐播放器（Navidrome / SongLoft 的通行结构）：
+ *
+ *   **音乐库**   —— 浏览 + 播放合一的主页面。原来「正在播放」是独立一页，
+ *                   听歌时要在「播放页 ↔ 曲库」之间来回跳，不符合通行习惯；
+ *                   现在播放态由常驻迷你条 + 可展开全屏播放页承载，
+ *                   曲库里点即播，队列与歌词就地可见。
+ *   在线搜索     —— 联网搜歌独立页（多平台结果聚合）
+ *   音源 / 运行状态 / 设置
  */
 const navItems = [
-  { id: 'now',     label: '正在播放', icon: '♫' },
-  { id: 'search',  label: '搜索',     icon: '⌕' },
   { id: 'library', label: '音乐库',   icon: '▤' },
+  { id: 'search',  label: '在线搜索', icon: '⌕' },
   { id: 'sources', label: '音源',     icon: '◉' },
   { id: 'dash',    label: '运行状态', icon: '◈' },
   { id: 'settings',label: '设置',     icon: '⚙' },
@@ -132,7 +134,7 @@ const navItems = [
 const mobileItems = navItems.filter((i) => i.id !== 'dash');
 
 const player = usePlayer();
-const route = ref('now');           // 默认页 = 正在播放（用户要求）
+const route = ref('library');       // 默认页 = 音乐库（播放已整合进曲库）
 const drawerOpen = ref(false);
 const health = ref(null);
 

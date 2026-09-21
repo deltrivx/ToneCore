@@ -14,7 +14,7 @@
  *
  * 发版流程详见 docs/development.md「发版」一节。
  */
-export const VERSION_DEFAULT = '0.3.0';
+export const VERSION_DEFAULT = '0.4.0';
 
 /** 运行期版本：构建时注入的 TONECORE_VERSION 优先 */
 export const VERSION: string = process.env.TONECORE_VERSION || VERSION_DEFAULT;
