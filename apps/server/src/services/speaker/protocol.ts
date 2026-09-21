@@ -186,14 +186,28 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
     return { ok: true, mina: { userId, serviceToken, ssecurity } };
   }
 
-  // 需要短信 / 邮箱验证码：把你自己的 _sign 一并带出去，供第二步提交
-  const needCode = j.notificationUrl || String(j._sign ?? "") || sign;
+  // 需要短信 / 邮箱验证码。
+  // 关键：_sign 的真身是 notificationUrl 里的 context 参数（约 811 字符），
+  // 它是「会话上下文」，必须原样回传给 serviceLoginAuth2 校验验证码。
+  const notifUrl = String(j.notificationUrl ?? "");
+  const needCode = notifUrl || j._sign;
   if (needCode) {
+    let signToken = String(j._sign ?? "");
+    if (!signToken && notifUrl) {
+      try {
+        const u = new URL(notifUrl);
+        signToken = u.searchParams.get("context") ?? "";
+      } catch {
+        const m = notifUrl.match(/[?&]context=([^&]+)/);
+        if (m) signToken = decodeURIComponent(m[1]);
+      }
+    }
     return {
       ok: false,
       needVerify: {
-        notificationUrl: String(j.notificationUrl ?? ""),
-        _sign: String(j._sign ?? sign),
+        notificationUrl: notifUrl,
+        // 验证码校验用的会话签名
+        _sign: signToken,
       },
       error: "需要短信/邮箱验证码",
       raw: j,
@@ -231,29 +245,50 @@ export async function verifyMiLogin(
   code: string,
   sign: string,
 ): Promise<MiLoginResult> {
+  // 小米的短信验证码校验：带 _sign（会话上下文）+ code 重新提交登录接口。
+  // 全程纯 API，不需要打开任何网页。
   const params = new URLSearchParams({
     _json: "true",
-    user: c.username,
-    code,
-    _sign: sign,
-    callback: "https://api2.mina.mi.com/sts",
     sid: "micoapi",
+    user: c.username,
+    hash: crypto.createHash("md5").update(c.password).digest("hex").toUpperCase(),
+    _sign: sign,
+    code,
   });
 
-  const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2`, {
+  const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2?_json=true`, {
     method: "POST",
     headers: { "User-Agent": MI_LOGIN_UA, "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),
   });
 
   const j = parseMiLoginBody(await res.text());
-  const userId = j?.userId ? String(j.userId) : "";
-  const ssecurity = String(j?.ssecurity ?? "");
-  const serviceToken = String(j?.serviceToken ?? "");
+  if (!j || typeof j !== "object") return { ok: false, error: "验证响应无法解析", raw: j };
+
+  const userId = j.userId ? String(j.userId) : "";
+  const ssecurity = String(j.ssecurity ?? "");
+  const serviceToken = String(j.serviceToken ?? "");
+
   if (serviceToken && ssecurity && userId) {
     return { ok: true, mina: { userId, serviceToken, ssecurity } };
   }
-  return { ok: false, error: String(j?.desc ?? j?.error ?? "验证码校验失败"), raw: j };
+
+  // 验证码错了 / 过期，把新 _sign 回传以便重试
+  const newSign = String(j._sign ?? "");
+  if (newSign) {
+    return {
+      ok: false,
+      needVerify: { notificationUrl: String(j.notificationUrl ?? ""), _sign: newSign },
+      error: describeLoginCode(Number(j.code ?? 0), String(j.desc ?? j.description ?? "")),
+      raw: j,
+    };
+  }
+
+  return {
+    ok: false,
+    error: describeLoginCode(Number(j.code ?? 0), String(j.desc ?? j.description ?? "")),
+    raw: j,
+  };
 }
 
 
