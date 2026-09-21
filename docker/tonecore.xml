@@ -46,6 +46,14 @@
           Description="播放网络歌曲时自动下载保存到音乐库" Type="Variable" Display="always"
           Required="false" Mask="false">true</Config>
 
+  <Config Name="嵌入标签与封面" Target="EMBED_METADATA" Default="true" Mode=""
+          Description="落库后自动写入 ID3 / Vorbis 标签与专辑封面" Type="Variable" Display="always"
+          Required="false" Mask="false">true</Config>
+
+  <Config Name="写入歌词" Target="WRITE_LYRICS" Default="true" Mode=""
+          Description="同时写入音频标签与同名 .lrc 文件" Type="Variable" Display="always"
+          Required="false" Mask="false">true</Config>
+
   <Config Name="下载并发" Target="DOWNLOAD_CONCURRENCY" Default="1" Mode=""
           Description="同时下载任务数（建议保持 1，防风控）" Type="Variable" Display="advanced"
           Required="false" Mask="false">1</Config>
@@ -53,6 +61,14 @@
   <Config Name="任务间隔(ms)" Target="DOWNLOAD_INTERVAL_MS" Default="3000" Mode=""
           Description="两个下载任务之间的间隔，防止触发风控" Type="Variable" Display="advanced"
           Required="false" Mask="false">3000</Config>
+
+  <Config Name="落盘路径模板" Target="PATH_TEMPLATE" Default="{artist}/{album}/{title}" Mode=""
+          Description="可用变量：{artist} {album} {title}" Type="Variable" Display="advanced"
+          Required="false" Mask="false">{artist}/{album}/{title}</Config>
+
+  <Config Name="平台优先级" Target="PLATFORMS" Default="kw,kg,tx,wy,mg" Mode=""
+          Description="逗号分隔，越靠前越优先。kw=酷我 kg=酷狗 tx=QQ wy=网易 mg=咪咕" Type="Variable" Display="advanced"
+          Required="false" Mask="false">kw,kg,tx,wy,mg</Config>
 
   <Config Name="日志级别" Target="LOG_LEVEL" Default="info" Mode=""
           Description="trace / debug / info / warn / error" Type="Variable" Display="advanced"

@@ -11,3 +11,7 @@ music/
 coverage/
 .vscode/
 .idea/
+
+# 运行期临时产物
+*.part
+*.tagtmp

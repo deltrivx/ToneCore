@@ -53,5 +53,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # 把版本号注入镜像，供 /api/health 与界面展示（与镜像标签同源）
+          build-args: |
+            TONECORE_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

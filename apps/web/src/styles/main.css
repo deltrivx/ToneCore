@@ -51,6 +51,14 @@
   .tc-dot-ok   { @apply bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]; }
   .tc-dot-warn { @apply bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]; }
   .tc-dot-off  { @apply bg-slate-600; }
+
+  /* 列表行内的图标按钮（试听 / 删除）—— 尺寸固定，避免行高抖动 */
+  .tc-icon-btn {
+    @apply inline-flex items-center justify-center w-6 h-6 rounded-md
+           border border-ink-600 bg-ink-800 text-slate-400
+           hover:bg-ink-700 hover:text-neon-soft transition-colors
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
 }
 
 /* 顶部扫描线动效 */

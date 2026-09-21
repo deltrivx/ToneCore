@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { loadConfig, saveConfig } from '../config.js';
+import { loadConfig, saveConfig, lockedByEnv } from '../config.js';
+import { VERSION } from '../version.js';
 import type { SourceEngine } from '../services/source/index.js';
 import type { Downloader } from '../services/download/index.js';
 import type { Library } from '../services/library/index.js';
@@ -24,7 +25,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   // ---------- 健康检查 ----------
   app.get('/api/health', async () => ({
     ok: true,
-    version: '0.1.0',
+    version: VERSION,
     sources: d.engine.sourceCount,
     library: d.lib.count(),
     queue: d.downloader.status(),
@@ -33,15 +34,33 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   }));
 
   // ---------- 配置 ----------
-  app.get('/api/config', async () => loadConfig());
+  app.get('/api/config', async () => ({ ...loadConfig(), _lockedByEnv: lockedByEnv() }));
   app.post('/api/config', async (req) => ({ ok: true, config: saveConfig(req.body as any) }));
 
   // ---------- 曲库 ----------
   app.get('/api/library', async (req) => {
     const q = req.query as any;
-    return { total: d.lib.count(), songs: d.lib.list(Number(q.limit) || 50, Number(q.offset) || 0) };
+    const limit = Math.min(Math.max(1, Number(q.limit) || 50), 500);
+    const offset = Math.max(0, Number(q.offset) || 0);
+    const keyword = String(q.keyword || '').trim();
+    return {
+      total: keyword ? d.lib.countSearch(keyword) : d.lib.count(),
+      songs: d.lib.search(keyword, limit, offset),
+      keyword,
+    };
   });
   app.post('/api/library/scan', async () => d.lib.scan());
+
+  // 删除曲库条目（音频与同名 .lrc 一并移入回收站，不做硬删）
+  app.post('/api/library/delete', async (req) => {
+    const b = (req.body || {}) as any;
+    const filePath = String(b.filePath || '');
+    if (!filePath) return { ok: false, error: '缺少 filePath' };
+    return d.lib.remove(filePath);
+  });
+
+  // 曲库统计（供界面概览）
+  app.get('/api/library/stats', async () => d.lib.stats());
 
   // ---------- 音源 ----------
   app.get('/api/sources', async () => ({ count: d.engine.sourceCount, sources: d.engine.listSources() }));
@@ -132,6 +151,12 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   // ---------- 刮削 ----------
   app.post('/api/scraper/audit', async (req) => d.scraper.audit(Number((req.body as any)?.limit) || 200));
 
+  // 批量补全缺失的标签 / 封面 / 歌词（主动刮削）
+  app.post('/api/scraper/backfill', async (req) => {
+    const limit = Math.min(Math.max(1, Number((req.body as any)?.limit) || 20), 100);
+    return d.scraper.backfill(limit);
+  });
+
   // ---------- 音箱 ----------
   app.get('/api/speaker', async () => d.speaker.status);
   // 账号密码登录（对齐 SongLoft MIoT 契约）
@@ -182,6 +207,33 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     const b = req.body as any;
     return { ok: await d.speaker.say(String(b.deviceId || ''), String(b.text || '')) };
   });
+
+  // 播放控制（上一首/下一首/暂停/继续/停止）—— 与语音指令同一套底层能力
+  app.post('/api/speaker/control', async (req) => {
+    const b = (req.body || {}) as any;
+    const action = String(b.action || '');
+    const allowed = ['play', 'pause', 'stop', 'next', 'prev'];
+    if (!allowed.includes(action)) {
+      return { ok: false, error: `action 必须是 ${allowed.join(' / ')} 之一` };
+    }
+    return { ok: await d.speaker.control(String(b.deviceId || ''), action as any) };
+  });
+
+  // 音量：传 volume 为绝对值（0~100），传 delta 为相对调节
+  app.post('/api/speaker/volume', async (req) => {
+    const b = (req.body || {}) as any;
+    const deviceId = String(b.deviceId || '');
+    if (b.delta !== undefined) {
+      return { ok: await d.speaker.nudgeVolume(deviceId, Number(b.delta) || 0), mode: 'delta' };
+    }
+    if (b.volume === undefined) return { ok: false, error: '需要 volume 或 delta' };
+    return { ok: await d.speaker.setVolume(deviceId, Number(b.volume)), mode: 'absolute' };
+  });
+
+  // 当前播放上下文（哪台设备在放什么、队列位置）
+  app.get('/api/speaker/now', async () => ({
+    sessions: d.orchestrator.sessionSnapshot(),
+  }));
 
   // ---------- 本地文件流 ----------
   app.get('/stream/*', async (req, reply) => {

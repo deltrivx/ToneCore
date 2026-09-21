@@ -1,0 +1,19 @@
+feat: 补齐配置生效链路、播放控制与自动刮削
+
+修复容器模板中已暴露但代码未读取的环境变量（QUALITY / AUTO_FETCH /
+EMBED_METADATA / WRITE_LYRICS / DOWNLOAD_CONCURRENCY / DOWNLOAD_INTERVAL_MS /
+PATH_TEMPLATE / PLATFORMS / LOG_LEVEL），此前在 Unraid 上修改音质等参数不生效。
+
+实现此前仅有占位日志的语音控制分支：上一首 / 下一首 / 暂停 / 继续 / 停止，
+以及音量的绝对设置与相对增减。为此在编排层引入按设备隔离的播放上下文，
+用于在本次点歌的候选队列之间前后切换。
+
+把「自动刮削」从只读改为真正写入：ID3v2 与 Vorbis Comment 标签、
+专辑封面、歌词（标签 + 同名 .lrc），并支持对已有曲库批量补全。
+
+修复音箱对话轮询使用共享时间戳导致多设备互相挤压、指令被丢弃的问题；
+修复曲库扫描新增计数依赖独立语句读取 changes() 的不可靠统计；
+修正 /stream 目录穿越防护只做字符串前缀比对可被相邻目录绕过的问题。
+
+补全工程规范：CHANGELOG、RELEASES、版本发布说明、.dockerignore、
+版本号收敛到单一出处，并新增标签写入的结构化测试。

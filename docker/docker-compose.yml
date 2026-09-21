@@ -10,6 +10,24 @@ services:
       - MUSIC_DIR=/music
       - DATA_DIR=/data
       - PORT=8090
+      # ---- 运行参数（按需调整；环境变量优先于界面设置） ----
+      # 目标音质：master / flac24bit / flac / 320k / 128k
+      - QUALITY=flac
+      # 点播自动落库
+      - AUTO_FETCH=true
+      # 嵌入标签与封面
+      - EMBED_METADATA=true
+      # 写入歌词（标签 + 同名 .lrc）
+      - WRITE_LYRICS=true
+      # 下载并发与间隔（防风控，建议保持 1 / 3000）
+      - DOWNLOAD_CONCURRENCY=1
+      - DOWNLOAD_INTERVAL_MS=3000
+      # 落盘路径模板
+      - PATH_TEMPLATE={artist}/{album}/{title}
+      # 平台优先级
+      - PLATFORMS=kw,kg,tx,wy,mg
+      # 日志级别：trace / debug / info / warn / error
+      - LOG_LEVEL=info
     volumes:
       - /your/music:/music
       - /your/appdata/tonecore:/data

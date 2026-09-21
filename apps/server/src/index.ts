@@ -45,6 +45,9 @@ async function main() {
   const speaker = new SpeakerService();
   const orchestrator = new Orchestrator(engine, downloader, lib);
 
+  // 下载完成后的标签/封面/歌词补齐
+  downloader.attachScraper(scraper);
+
   const lanIP = process.env.PUBLIC_BASE || `http://${detectLanIP()}:${cfg.port}`;
   const publicBase = () => process.env.PUBLIC_BASE || `http://${lanIP.split('//')[1].split(':')[0]}:${cfg.port}`;
 

@@ -378,3 +378,107 @@ export async function fetchDevices(cfg: MinaConfig): Promise<any[]> {
   });
   return r?.data || [];
 }
+
+// ---------- 播放控制（player_control） ----------
+
+/**
+ * 音箱播放控制动作。
+ *
+ * 说明：小爱音箱的媒体控制统一走 mediaplayer 的 player_control 方法，
+ * message 里的 action 取值见 DOWNLOAD/PLAY/PAUSE/STOP/NEXT/PREV。
+ */
+export type PlayerAction = 'play' | 'pause' | 'stop' | 'next' | 'prev';
+
+/** 内部动作名 → ubus message 里的 action */
+const PLAYER_ACTION_MAP: Record<PlayerAction, string> = {
+  play: 'PLAY',
+  pause: 'PAUSE',
+  stop: 'STOP',
+  next: 'NEXT',
+  prev: 'PREV',
+};
+
+/**
+ * 下发播放控制指令（上/下一首、暂停、停止）。
+ *
+ * 返回 true 表示音箱已接受指令 —— 注意这只代表「指令送达且被接收」，
+ * 不代表音箱当前一定处于可执行状态（例如暂停在未播放时是空操作）。
+ */
+export async function playerControl(
+  cfg: MinaConfig,
+  deviceId: string,
+  action: PlayerAction,
+  mediaId = '',
+): Promise<boolean> {
+  const r = await minaRequest(cfg, '/remote/ubus', {
+    method: 'POST',
+    body: {
+      deviceId,
+      method: 'player_control',
+      path: 'mediaplayer',
+      message: JSON.stringify({ action: PLAYER_ACTION_MAP[action], mediaId }),
+      requestId: `tc_pc_${Date.now()}`,
+    },
+  });
+  const ok = r?.code === 0 || r?.message === 'success';
+  if (!ok) {
+    logger.debug(
+      { deviceId, action, resp: JSON.stringify(r).slice(0, 200) },
+      'playerControl 返回非成功',
+    );
+  }
+  return ok;
+}
+
+/**
+ * 设置音量（0~100）。
+ *
+ * 音箱音量走 mediaplayer 的 player_set_volume，message 里带 volume。
+ * 超出范围直接截断，不抛错 —— 语音识别出的数字经常离谱（"音量一百"→100 没问题，
+ * 但 "音量999" 也真会出现），截断比报错体验好。
+ */
+export async function setVolume(
+  cfg: MinaConfig,
+  deviceId: string,
+  volume: number,
+): Promise<boolean> {
+  const v = Math.min(100, Math.max(0, Math.round(volume)));
+  const r = await minaRequest(cfg, '/remote/ubus', {
+    method: 'POST',
+    body: {
+      deviceId,
+      method: 'player_set_volume',
+      path: 'mediaplayer',
+      message: JSON.stringify({ volume: v }),
+      requestId: `tc_vol_${Date.now()}`,
+    },
+  });
+  const ok = r?.code === 0 || r?.message === 'success';
+  if (!ok) logger.debug({ deviceId, volume: v, resp: JSON.stringify(r).slice(0, 200) }, 'setVolume 返回非成功');
+  return ok;
+}
+
+/** 查询当前音量（用于相对调节 / 状态展示） */
+export async function getVolume(cfg: MinaConfig, deviceId: string): Promise<number | null> {
+  const r = await minaRequest(cfg, '/remote/ubus', {
+    method: 'POST',
+    body: {
+      deviceId,
+      method: 'player_get_play_status',
+      path: 'mediaplayer',
+      message: JSON.stringify({}),
+      requestId: `tc_volq_${Date.now()}`,
+    },
+  });
+  // 响应形态在不同固件上不一致，尽量宽地找 volume 字段
+  const raw = r?.data?.volume ?? r?.data?.info;
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string') {
+    try {
+      const j = JSON.parse(raw);
+      if (typeof j?.volume === 'number') return j.volume;
+    } catch { /* 非 JSON */ }
+  }
+  return null;
+}
+

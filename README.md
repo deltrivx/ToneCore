@@ -38,10 +38,19 @@ ToneCore 是一个**无头音乐中枢**。它不做播放器 UI，只做一件�
 | 能力 | 说明 |
 |---|---|
 | 🎤 **设备接入** | 小爱音箱语音点歌，对话轮询 + 意图解析 |
-| 🔍 **音源引擎** | 多平台并发搜歌，自动打分选源、失败降级 |
+| 🎛️ **播放控制** | 上一首 / 下一首 / 暂停 / 继续 / 停止，音量绝对与相对调节 |
+| 🔍 **音源引擎** | 多平台并发搜歌，跨平台统一打分选源、失败降级 |
 | 💾 **无损落库** | 点播自动下载 FLAC/320K，按 `歌手/专辑/歌名` 归档 |
-| 🏷️ **自动刮削** | 嵌入 ID3/FLAC 标签、封面、歌词 |
+| 🏷️ **自动刮削** | 嵌入 ID3/FLAC 标签、封面、歌词，支持对已有曲库批量补全 |
+| 📚 **本地曲库** | SQLite 索引，检索 / 分页 / 试听 / 统计，删除走回收站 |
 | 🎛️ **极简控制台** | 深色科技风，PC / 移动双端适配 |
+
+### 为什么音源要「统一打分」而不是「按平台顺序」
+
+同一个关键词在各平台的搜索结果质量差异很大 —— 某些平台的搜索结果可能全是翻唱。
+ToneCore 把各平台候选放在一起，按标题相似度、歌手匹配度、版本噪音词
+（伴奏 / DJ / 翻唱 / 现场等）综合评分，分数高的优先取链；
+并设有分数下限，宁可返回失败也不降级到翻唱，避免「点错歌」。
 
 ---
 
@@ -73,7 +82,9 @@ ToneCore 是一个**无头音乐中枢**。它不做播放器 UI，只做一件�
 ```bash
 docker run -d \
   --name ToneCore \
+  --restart unless-stopped \
   -p 8090:8090 \
+  -e TZ=Asia/Shanghai \
   -v /your/music:/music \
   -v /your/appdata/tonecore:/data \
   ghcr.io/deltrivx/tonecore:latest
@@ -83,11 +94,35 @@ docker run -d \
 
 ---
 
+## ⚙️ 配置
+
+优先级为 **环境变量 > `/data/config.yaml` > 内置默认值**。
+在容器模板或 compose 里设置的变量会覆盖界面上的改动 ——
+被环境变量锁定的字段会在设置页显式提示，避免「改了没反应」却找不到原因。
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `PORT` | `8090` | 控制台端口 |
+| `MUSIC_DIR` | `/music` | 音乐库根目录 |
+| `DATA_DIR` | `/data` | 配置、数据库、音源脚本 |
+| `QUALITY` | `flac` | 目标音质：`master` / `flac24bit` / `flac` / `320k` / `128k` |
+| `AUTO_FETCH` | `true` | 点播是否自动落库 |
+| `EMBED_METADATA` | `true` | 是否嵌入标签与封面 |
+| `WRITE_LYRICS` | `true` | 是否写入歌词 |
+| `DOWNLOAD_CONCURRENCY` | `1` | 下载并发（建议保持 1） |
+| `DOWNLOAD_INTERVAL_MS` | `3000` | 下载任务间隔，防风控 |
+| `PATH_TEMPLATE` | `{artist}/{album}/{title}` | 落盘路径模板 |
+| `PLATFORMS` | `kw,kg,tx,wy,mg` | 平台优先级 |
+| `LOG_LEVEL` | `info` | `trace` / `debug` / `info` / `warn` / `error` |
+
+---
+
 ## 📖 文档
 
 - [部署指南](docs/deploy.md)
 - [音源管理](docs/sources.md)
 - [开发指南](docs/development.md)
+- [更新日志](CHANGELOG.md) · [版本发布](RELEASES.md)
 
 ---
 

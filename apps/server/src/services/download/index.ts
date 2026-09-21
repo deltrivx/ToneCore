@@ -4,6 +4,7 @@ import PQueue from 'p-queue';
 import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 import type { Library } from '../library/index.js';
+import type { Scraper } from '../scraper/index.js';
 import type { Song, SongUrl } from '../source/types.js';
 
 /** 音频 magic number 校验：确认下到的是音频而不是 HTML 错误页 */
@@ -43,6 +44,7 @@ function sanitize(s: string): string {
 export class Downloader {
   private queue: PQueue;
   private lib: Library;
+  private scraper: Scraper | null = null;
 
   constructor(lib: Library) {
     const cfg = loadConfig();
@@ -52,6 +54,17 @@ export class Downloader {
       interval: cfg.downloadIntervalMs,
       intervalCap: 1,          // 每个间隔只放行 1 个任务，严格防风控
     });
+  }
+
+  /**
+   * 注入刮削服务。
+   *
+   * 用注入而不是构造参数，是为了打破 Downloader ↔ Scraper 的循环装配：
+   * 两者都需要 Library，而 Scraper 又只想在读元数据时才被用到。
+   * 未注入时下载照常进行，只是不写标签。
+   */
+  attachScraper(scraper: Scraper) {
+    this.scraper = scraper;
   }
 
   /** 队列状态 */
@@ -132,6 +145,23 @@ export class Downloader {
         sizeMB: +(size / 1048576).toFixed(1), quality: url.quality,
         source: url.source, ms: Date.now() - t0,
       }, '下载完成并落库');
+
+      // 刮削：补齐标签 / 封面 / 歌词。
+      // 刻意放在落库之后、且吞掉异常 —— 刮削失败（网络不通、接口变动）
+      // 绝不能把一次成功的下载判成失败。
+      if (this.scraper) {
+        try {
+          await this.scraper.applyToFile(absFile, song, {
+            platform: song.platform,
+            songId: song.id,
+            coverUrl: song.coverUrl,
+            album: song.album,
+            duration: song.duration,
+          });
+        } catch (e) {
+          logger.warn({ file: relFile, err: String(e).slice(0, 200) }, '刮削失败（不影响落库结果）');
+        }
+      }
 
       // 同步进曲库索引
       this.lib.scan();

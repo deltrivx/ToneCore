@@ -8,7 +8,7 @@
             <span class="text-ink-950 font-bold text-sm">T</span>
           </div>
           <span class="font-semibold text-slate-100 tracking-tight">ToneCore</span>
-          <span class="tc-badge hidden sm:inline-flex">v0.1.0</span>
+          <span v-if="health?.version" class="tc-badge hidden sm:inline-flex">v{{ health.version }}</span>
         </div>
 
         <nav class="ml-auto hidden md:flex items-center gap-1">
