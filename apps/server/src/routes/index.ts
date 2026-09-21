@@ -176,6 +176,21 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   });
 
   // 退出登录
+  // 从 SongLoft 导入已登录的小米凭据（跳过小米登录流程）
+  app.post('/api/speaker/import', async () => {
+    const r = await import('../services/speaker/index.js').then((m) => m.speaker ?? null).catch(() => null);
+    const svc: any = r || (d.speaker as any);
+    if (!svc || typeof svc.importCredentials !== 'function') {
+      return { ok: false, error: '当前版本不支持凭据导入' };
+    }
+    const res = svc.importCredentials();
+    if (res.ok) {
+      // 导入成功后同步刷新一次设备列表
+      try { await svc.refreshDevices(); } catch { /* 忽略刷新失败 */ }
+    }
+    return { ok: res.ok, userId: res.userId ?? null, error: res.error ?? null, status: svc.status };
+  });
+
   app.post('/api/speaker/logout', async () => {
     d.speaker.logout();
     return { ok: true, status: d.speaker.status };
