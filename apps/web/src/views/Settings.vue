@@ -100,7 +100,10 @@
 
           <!-- 需要验证码 -->
           <div v-if="needVerify" class="space-y-3 rounded-lg bg-ink-800/60 p-3">
-            <div class="text-xs text-amber-400">需要短信 / 邮箱验证码</div>
+            <div class="text-xs text-amber-400">
+              需要短信 / 邮箱验证码
+              <span class="text-slate-500">（验证码已发送，在此直接填写即可，无需打开任何网页）</span>
+            </div>
             <div>
               <label class="tc-label">验证码</label>
               <input v-model="loginForm.code" class="tc-input font-mono text-xs"
@@ -108,7 +111,6 @@
             </div>
             <div class="flex gap-2">
               <button class="tc-btn-primary text-xs" :disabled="busy" @click="doVerify">提交验证码</button>
-              <a v-if="verifyUrl" :href="verifyUrl" target="_blank" class="tc-btn text-xs">打开验证页</a>
             </div>
           </div>
 
@@ -198,7 +200,6 @@ const spk = ref(null);
 const spkForm = ref({ monitorEnabled: false, pollInterval: 1, wakeWords: [] });
 const loginForm = ref({ username: '', password: '', code: '' });
 const needVerify = ref(false);
-const verifyUrl = ref('');
 const verifySign = ref('');
 const busy = ref(false);
 const spkMsg = ref(null);
@@ -240,7 +241,6 @@ async function doLogin() {
       await loadSpeaker();
     } else if (r && r.needVerify) {
       needVerify.value = true;
-      verifyUrl.value = r.notificationUrl || '';
       verifySign.value = r.sign || '';
       spkMsg.value = { ok: false, text: '需要验证码，已发送至你的手机 / 邮箱' };
     } else {
@@ -254,10 +254,19 @@ async function doLogin() {
 async function doVerify() {
   busy.value = true; spkMsg.value = null;
   try {
+    const code = loginForm.value.code.trim();
+    if (!code) {
+      spkMsg.value = { ok: false, text: '请先填写收到的验证码' };
+      return;
+    }
+    if (!verifySign.value) {
+      spkMsg.value = { ok: false, text: '登录会话已过期，请重新点「登录」获取验证码' };
+      return;
+    }
     const r = await api.speakerVerify({
       username: loginForm.value.username.trim(),
       password: loginForm.value.password,
-      code: loginForm.value.code.trim(),
+      code,
       sign: verifySign.value,
     });
     if (r && r.ok) {
