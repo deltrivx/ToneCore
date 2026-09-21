@@ -1,0 +1,19 @@
+ToneCore
+Copyright 2026 deltrivx
+
+本产品整合了以下开源项目的能力，遵循各自许可证：
+
+1. SongLoft (https://github.com/songloft-org/songloft)
+   License: Apache-2.0
+   用途: 曲库管理架构参考、插件体系设计
+
+2. RoMusic (https://github.com/leizi914599611-boop/ro)
+   用途: 音源解析引擎、下载落库逻辑参考
+   注: 上游仓库未声明许可证，本项目仅参考实现思路，未直接复制代码
+
+3. songloft-plugin-miot (https://github.com/songloft-org/songloft-plugin-miot)
+   License: Apache-2.0
+   用途: 小爱音箱通信协议实现参考
+
+4. 各洛雪音源脚本 (.js)
+   版权归各自作者所有，仅作为用户可自行导入的第三方扩展

@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #app { height: 100%; }
+  body {
+    @apply bg-ink-900 text-slate-300 antialiased;
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(0, 229, 255, 0.06), transparent 45%),
+      radial-gradient(circle at 85% 100%, rgba(139, 92, 246, 0.07), transparent 45%);
+    background-attachment: fixed;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { @apply bg-ink-900; }
+  ::-webkit-scrollbar-thumb { @apply bg-ink-600 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-ink-700; }
+}
+
+@layer components {
+  .tc-card {
+    @apply bg-ink-850 border border-ink-700 rounded-xl shadow-card;
+  }
+  .tc-btn {
+    @apply px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+           border border-ink-600 bg-ink-800 hover:bg-ink-700 text-slate-300
+           active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .tc-btn-primary {
+    @apply px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+           bg-gradient-to-r from-neon-dim to-neon text-ink-950 font-semibold
+           hover:shadow-glow active:scale-[0.97] disabled:opacity-40;
+  }
+  .tc-input {
+    @apply w-full px-3 py-2 rounded-lg bg-ink-900 border border-ink-700
+           text-slate-200 placeholder-slate-600 text-sm
+           focus:outline-none focus:border-neon-dim focus:ring-1 focus:ring-neon-dim/40
+           transition-colors;
+  }
+  .tc-label {
+    @apply block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wide;
+  }
+  .tc-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-mono
+           bg-ink-800 border border-ink-600 text-neon-soft;
+  }
+  /* 状态点 */
+  .tc-dot {
+    @apply inline-block w-2 h-2 rounded-full;
+  }
+  .tc-dot-ok   { @apply bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]; }
+  .tc-dot-warn { @apply bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]; }
+  .tc-dot-off  { @apply bg-slate-600; }
+}
+
+/* 顶部扫描线动效 */
+@keyframes tc-scan {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.tc-scanline::after {
+  content: '';
+  @apply absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neon to-transparent;
+  animation: tc-scan 3s linear infinite;
+}

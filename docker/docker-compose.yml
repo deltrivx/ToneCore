@@ -1,0 +1,15 @@
+services:
+  tonecore:
+    image: ghcr.io/deltrivx/tonecore:latest
+    container_name: ToneCore
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - TZ=Asia/Shanghai
+      - MUSIC_DIR=/music
+      - DATA_DIR=/data
+      - PORT=8090
+    volumes:
+      - /your/music:/music
+      - /your/appdata/tonecore:/data
