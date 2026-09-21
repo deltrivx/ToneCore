@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { logger } from './logger.js';
@@ -12,13 +13,23 @@ import { SpeakerService } from './services/speaker/index.js';
 import { Orchestrator } from './services/orchestrator.js';
 import { registerRoutes } from './routes/index.js';
 
+/** 探测本机对外 IPv4（用于生成推给音箱的绝对地址） */
+function detectLanIP(): string {
+  const ifaces = os.networkInterfaces();
+  for (const list of Object.values(ifaces)) {
+    for (const i of list || []) {
+      if (i.family === 'IPv4' && !i.internal) return i.address;
+    }
+  }
+  return '127.0.0.1';
+}
+
 async function main() {
   const cfg = loadConfig();
   ensureDirs(cfg);
 
   logger.info({ music: cfg.musicDir, data: cfg.dataDir, quality: cfg.quality }, 'ToneCore 启动中');
 
-  // 服务装配
   const lib = new Library();
   const engine = new SourceEngine();
   const downloader = new Downloader(lib);
@@ -26,23 +37,21 @@ async function main() {
   const speaker = new SpeakerService();
   const orchestrator = new Orchestrator(engine, downloader, lib);
 
-  // 音源加载 + 曲库扫描
+  const lanIP = process.env.PUBLIC_BASE || `http://${detectLanIP()}:${cfg.port}`;
+  const publicBase = () => process.env.PUBLIC_BASE || `http://${lanIP.split('//')[1].split(':')[0]}:${cfg.port}`;
+
   engine.reload();
   const scan = lib.scan();
-  logger.info({ sources: engine.sourceCount, songs: scan.total }, '初始化完成');
+  logger.info({ sources: engine.sourceCount, songs: scan.total, publicBase: publicBase() }, '初始化完成');
 
-  // HTTP 服务
   const app = Fastify({ logger: false, bodyLimit: 10 * 1024 * 1024 });
-  await registerRoutes(app, { engine, downloader, lib, scraper, speaker, orchestrator });
+  await registerRoutes(app, { engine, downloader, lib, scraper, speaker, orchestrator, publicBase });
 
-  // 前端静态资源
   const webDir = path.resolve(process.cwd(), 'public');
   if (fs.existsSync(webDir)) {
     await app.register(fastifyStatic, { root: webDir, prefix: '/' });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/api') || req.url.startsWith('/stream') || req.url.startsWith('/proxy')) {
-        return reply.code(404).send({ error: 'not found' });
-      }
+      if (/^\/(api|stream|proxy)/.test(req.url)) return reply.code(404).send({ error: 'not found' });
       return reply.sendFile('index.html');
     });
   }
@@ -50,10 +59,16 @@ async function main() {
   await app.listen({ port: cfg.port, host: '0.0.0.0' });
   logger.info({ port: cfg.port }, 'ToneCore 已就绪');
 
-  speaker.startMonitor();
+  // 装配音箱（注册点歌回调）
+  orchestrator.attachSpeaker(speaker, publicBase);
+  if (speaker.enabled) {
+    await speaker.refreshDevices().catch(() => {});
+    speaker.startMonitor();
+  }
 
   const shutdown = async () => {
     logger.info('正在关闭...');
+    speaker.stopMonitor();
     await downloader.drain().catch(() => {});
     await app.close();
     process.exit(0);

@@ -16,6 +16,8 @@ export interface Deps {
   scraper: Scraper;
   speaker: SpeakerService;
   orchestrator: Orchestrator;
+  /** 对外访问地址（推给音箱用） */
+  publicBase: () => string;
 }
 
 export async function registerRoutes(app: FastifyInstance, d: Deps) {
@@ -27,36 +29,22 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     library: d.lib.count(),
     queue: d.downloader.status(),
     speaker: d.speaker.status.enabled,
+    devices: d.speaker.status.deviceCount,
   }));
 
   // ---------- 配置 ----------
-  app.get('/api/config', async () => {
-    const c = loadConfig();
-    return { ...c };
-  });
-
-  app.post('/api/config', async (req) => {
-    const next = saveConfig(req.body as any);
-    return { ok: true, config: next };
-  });
+  app.get('/api/config', async () => loadConfig());
+  app.post('/api/config', async (req) => ({ ok: true, config: saveConfig(req.body as any) }));
 
   // ---------- 曲库 ----------
   app.get('/api/library', async (req) => {
     const q = req.query as any;
-    return {
-      total: d.lib.count(),
-      songs: d.lib.list(Number(q.limit) || 50, Number(q.offset) || 0),
-    };
+    return { total: d.lib.count(), songs: d.lib.list(Number(q.limit) || 50, Number(q.offset) || 0) };
   });
-
   app.post('/api/library/scan', async () => d.lib.scan());
 
   // ---------- 音源 ----------
-  app.get('/api/sources', async () => ({
-    count: d.engine.sourceCount,
-    sources: d.engine.listSources(),
-  }));
-
+  app.get('/api/sources', async () => ({ count: d.engine.sourceCount, sources: d.engine.listSources() }));
   app.post('/api/sources/reload', async () => {
     d.engine.reload();
     return { ok: true, count: d.engine.sourceCount };
@@ -68,11 +56,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     const keyword = String(q.keyword || '').trim();
     if (!keyword) return { ok: false, error: '缺少 keyword' };
     const groups = await d.engine.searchAll(keyword, q.platforms ? String(q.platforms).split(',') : undefined);
-    return {
-      ok: true,
-      keyword,
-      platforms: Object.fromEntries([...groups].map(([k, v]) => [k, v.slice(0, 20)])),
-    };
+    return { ok: true, keyword, platforms: Object.fromEntries([...groups].map(([k, v]) => [k, v.slice(0, 20)])) };
   });
 
   // ---------- 点歌（核心） ----------
@@ -82,20 +66,20 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     if (!keyword) return { ok: false, error: '缺少 keyword' };
     const r = await d.orchestrator.resolveAndPlay(keyword, b.artist, b.quality);
     if (!r) return { ok: false, error: '未找到可播放音源' };
+
+    // 可选：同时推送到音箱
+    if (b.deviceId && d.speaker.status.enabled) {
+      const abs = d.publicBase().replace(/\/$/, '') + r.playUrl;
+      r.pushed = await d.speaker.play(String(b.deviceId), abs);
+    }
     return { ok: true, ...r };
   });
 
   // ---------- 下载队列 ----------
-  app.get('/api/downloads', async () => ({
-    queue: d.downloader.status(),
-    logs: d.lib.recentLogs(30),
-  }));
+  app.get('/api/downloads', async () => ({ queue: d.downloader.status(), logs: d.lib.recentLogs(30) }));
 
   // ---------- 刮削 ----------
-  app.post('/api/scraper/audit', async (req) => {
-    const limit = Number((req.body as any)?.limit) || 200;
-    return d.scraper.audit(limit);
-  });
+  app.post('/api/scraper/audit', async (req) => d.scraper.audit(Number((req.body as any)?.limit) || 200));
 
   // ---------- 音箱 ----------
   app.get('/api/speaker', async () => d.speaker.status);
@@ -103,25 +87,30 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     d.speaker.configure(req.body as any);
     return d.speaker.status;
   });
+  app.post('/api/speaker/devices', async () => ({ devices: await d.speaker.refreshDevices() }));
   app.post('/api/speaker/play', async (req) => {
     const b = req.body as any;
-    const ok = await d.speaker.play(String(b.deviceId || ''), String(b.url || ''));
-    return { ok };
+    return { ok: await d.speaker.play(String(b.deviceId || ''), String(b.url || '')) };
+  });
+  app.post('/api/speaker/say', async (req) => {
+    const b = req.body as any;
+    return { ok: await d.speaker.say(String(b.deviceId || ''), String(b.text || '')) };
   });
 
-  // ---------- 本地文件流（供音箱拉流） ----------
+  // ---------- 本地文件流 ----------
   app.get('/stream/*', async (req, reply) => {
-    const rel = (req.params as any)['*'];
+    const rel = decodeURIComponent((req.params as any)['*'] || '');
     const hit = d.orchestrator.streamPath(rel);
     if (!hit) return reply.code(404).send({ error: 'not found' });
 
-    const range = req.headers.range;
     const ext = rel.split('.').pop()?.toLowerCase();
     const mime = ext === 'flac' ? 'audio/flac'
       : ext === 'mp3' ? 'audio/mpeg'
       : ext === 'm4a' ? 'audio/mp4'
-      : ext === 'wav' ? 'audio/wav' : 'application/octet-stream';
+      : ext === 'wav' ? 'audio/wav'
+      : ext === 'ogg' ? 'audio/ogg' : 'application/octet-stream';
 
+    const range = req.headers.range;
     if (range) {
       const m = /bytes=(\d+)-(\d*)/.exec(range);
       const start = Number(m?.[1] || 0);
@@ -137,12 +126,14 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     return reply.send(fs.createReadStream(hit.abs));
   });
 
-  // ---------- 在线直链代理（避免跨域 + 隐藏真实源） ----------
+  // ---------- 在线直链代理 ----------
   app.get('/proxy', async (req, reply) => {
     const url = String((req.query as any).url || '');
     if (!/^https?:\/\//.test(url)) return reply.code(400).send({ error: 'invalid url' });
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Range: req.headers.range || '' } });
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', ...(req.headers.range ? { Range: req.headers.range } : {}) },
+      });
       const h: Record<string, string> = {};
       for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
         const v = res.headers.get(k);

@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ToneCore</Name>
+  <Repository>ghcr.io/deltrivx/tonecore:latest</Repository>
+  <Registry>https://github.com/deltrivx/ToneCore/pkgs/container/tonecore</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/deltrivx/ToneCore/issues</Support>
+  <Project>https://github.com/deltrivx/ToneCore</Project>
+  <Overview>一体化音乐中枢 · 音源搜索 / 无损落库 / 自动刮削 / 小爱音箱接入&#13;&#13;让小爱音箱想听什么就听什么，并且听完自动进你的本地曲库。&#13;&#13;核心能力：&#13;· 设备接入：小爱音箱语音点歌，对话轮询 + 意图解析&#13;· 音源引擎：多平台并发搜歌，自动打分选源、失败降级&#13;· 无损落库：点播自动下载 FLAC/320K，按 歌手/专辑/歌名 归档&#13;· 自动刮削：嵌入 ID3/FLAC 标签、封面&#13;· 极简控制台：深色科技风，PC / 移动双端适配</Overview>
+  <Category>MediaApp:Music MediaServer:Music Other:</Category>
+  <WebUI>http://[IP]:[PORT:8090]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/deltrivx/ToneCore/main/docker/tonecore.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/deltrivx/ToneCore/main/assets/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+
+  <Config Name="WebUI 端口" Target="8090" Default="8090" Mode="tcp"
+          Description="ToneCore 控制台端口" Type="Port" Display="always"
+          Required="true" Mask="false">8090</Config>
+
+  <Config Name="音乐库目录" Target="/music" Default="/mnt/user/music" Mode="rw"
+          Description="你的音乐库路径（可与其他音乐应用共享）" Type="Path" Display="always"
+          Required="true" Mask="false">/mnt/user/music</Config>
+
+  <Config Name="数据目录" Target="/data" Default="/mnt/user/appdata/ToneCore" Mode="rw"
+          Description="配置、数据库、音源脚本存放处" Type="Path" Display="always"
+          Required="true" Mask="false">/mnt/user/appdata/ToneCore</Config>
+
+  <Config Name="时区" Target="TZ" Default="Asia/Shanghai" Mode="" 
+          Description="容器时区" Type="Variable" Display="advanced"
+          Required="false" Mask="false">Asia/Shanghai</Config>
+
+  <Config Name="目标音质" Target="QUALITY" Default="flac" Mode=""
+          Description="master=母带 / flac24bit=Hi-Res / flac=无损 / 320k=高品质 / 128k=标准" Type="Variable" Display="always"
+          Required="false" Mask="false">flac</Config>
+
+  <Config Name="点播自动落库" Target="AUTO_FETCH" Default="true" Mode=""
+          Description="播放网络歌曲时自动下载保存到音乐库" Type="Variable" Display="always"
+          Required="false" Mask="false">true</Config>
+
+  <Config Name="下载并发" Target="DOWNLOAD_CONCURRENCY" Default="1" Mode=""
+          Description="同时下载任务数（建议保持 1，防风控）" Type="Variable" Display="advanced"
+          Required="false" Mask="false">1</Config>
+
+  <Config Name="任务间隔(ms)" Target="DOWNLOAD_INTERVAL_MS" Default="3000" Mode=""
+          Description="两个下载任务之间的间隔，防止触发风控" Type="Variable" Display="advanced"
+          Required="false" Mask="false">3000</Config>
+
+  <Config Name="日志级别" Target="LOG_LEVEL" Default="info" Mode=""
+          Description="trace / debug / info / warn / error" Type="Variable" Display="advanced"
+          Required="false" Mask="false">info</Config>
+</Container>

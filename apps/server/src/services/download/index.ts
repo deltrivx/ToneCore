@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import PQueue from 'p-queue';
 import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
@@ -93,10 +92,18 @@ export class Downloader {
       const absFile = path.join(cfg.musicDir, relFile);
       fs.mkdirSync(path.dirname(absFile), { recursive: true });
 
-      // 落盘（流式，先写临时文件再原子改名）
+      // 落盘（流式写入临时文件，完成后原子改名）
       const tmp = absFile + '.part';
-      const nodeStream = Readable.fromWeb(res.body as any);
-      await pipeline(Readable.from([head]).pipe(nodeStream), fs.createWriteStream(tmp));
+      const out = fs.createWriteStream(tmp);
+      await new Promise<void>((resolve, reject) => {
+        out.on('finish', resolve);
+        out.on('error', reject);
+        // 先写已读到的头部，再续上剩余流
+        out.write(head);
+        Readable.fromWeb(res.body as any)
+          .on('error', reject)
+          .pipe(out);
+      });
       fs.renameSync(tmp, absFile);
 
       const size = fs.statSync(absFile).size;
