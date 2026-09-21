@@ -157,12 +157,13 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
 
   const params = new URLSearchParams({
     _json: "true",
-    qs: "%40%3A%2F%2Faccount.xiaomi.com%2Fpass%2FserviceLoginAuth2",
+    qs: "%3Fsid%3Dmicoapi",
     sid: "micoapi",
     serviceParam:
       "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
     user: c.username,
-    hash: c.password,
+    // 小米要求密码为 MD5 大写，传明文会稳定返回 70016
+    hash: crypto.createHash("md5").update(c.password).digest("hex").toUpperCase(),
   });
   if (sign) params.set("_sign", sign);
 
