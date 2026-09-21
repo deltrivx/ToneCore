@@ -146,6 +146,9 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
       needVerify: !!r.needVerify,
       notificationUrl: r.needVerify ? r.needVerify.notificationUrl : null,
       sign: r.needVerify ? r.needVerify._sign : null,
+      // 自动发码结果：needVerify 时告诉前端码是否真的发出去了
+      ticketSent: r.ticketSent ?? null,
+      ticketError: r.ticketError ?? null,
       error: r.error ?? null,
       status: d.speaker.status,
     };
