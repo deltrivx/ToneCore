@@ -40,7 +40,7 @@ async function main() {
   const lanIP = process.env.PUBLIC_BASE || `http://${detectLanIP()}:${cfg.port}`;
   const publicBase = () => process.env.PUBLIC_BASE || `http://${lanIP.split('//')[1].split(':')[0]}:${cfg.port}`;
 
-  engine.reload();
+  await engine.reload();
   const scan = lib.scan();
   logger.info({ sources: engine.sourceCount, songs: scan.total, publicBase: publicBase() }, '初始化完成');
 

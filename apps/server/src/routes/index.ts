@@ -46,7 +46,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   // ---------- 音源 ----------
   app.get('/api/sources', async () => ({ count: d.engine.sourceCount, sources: d.engine.listSources() }));
   app.post('/api/sources/reload', async () => {
-    d.engine.reload();
+    await d.engine.reload();
     return { ok: true, count: d.engine.sourceCount };
   });
 

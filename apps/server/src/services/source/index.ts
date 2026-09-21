@@ -1,6 +1,7 @@
 import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
-import { SourceLoader, normalizeSongs } from './loader.js';
+import { SourceLoader } from './loader.js';
+import { SearchEngine } from '../search/index.js';
 import type { Song, SongUrl } from './types.js';
 
 export * from './types.js';
@@ -8,12 +9,11 @@ export { SourceLoader } from './loader.js';
 
 /** 标题/歌手相似度（0~1），用于从搜索结果里挑最佳匹配 */
 function similarity(a: string, b: string): number {
-  const x = a.toLowerCase().replace(/[\s\-_（）()《》·]/g, '');
-  const y = b.toLowerCase().replace(/[\s\-_（）()《》·]/g, '');
+  const x = a.toLowerCase().replace(/[\s\-_（）()《》·、,，.。!！?？]/g, '');
+  const y = b.toLowerCase().replace(/[\s\-_（）()《》·、,，.。!！?？]/g, '');
   if (!x || !y) return 0;
   if (x === y) return 1;
   if (x.includes(y) || y.includes(x)) return 0.85;
-  // 字符级重合度
   const setY = new Set(y);
   let hit = 0;
   for (const c of x) if (setY.has(c)) hit++;
@@ -28,93 +28,93 @@ export function pickBest(cands: Song[], title: string, artist?: string): Song | 
   for (const c of cands) {
     const ts = similarity(c.title, title);
     const as = artist ? similarity(c.artist, artist) : 0.5;
+    // 标题权重更高；同时要求标题不能完全不沾边
     const score = ts * 2 + as;
     if (score > bestScore) { bestScore = score; best = c; }
   }
-  // 标题至少得沾边
-  return bestScore >= 0.5 ? best : null;
+  return bestScore >= 1.2 ? best : null;
 }
 
 /**
- * 音源引擎：多平台并发搜索 → 打分选源 → 取直链。
+ * 音源引擎：
+ *   搜索 → SearchEngine（宿主自研，各平台公开 API）
+ *   取链 → SourceLoader（洛雪脚本，action=musicUrl）
  */
 export class SourceEngine {
   private loader: SourceLoader;
+  private search: SearchEngine;
 
   constructor() {
     const cfg = loadConfig();
     this.loader = new SourceLoader(cfg.sourcesDir);
+    this.search = new SearchEngine();
   }
 
-  reload() { this.loader.loadAll(); }
+  async reload() { await this.loader.loadAll(); }
 
   get sourceCount(): number { return this.loader.count; }
-  listSources() { return this.loader.list(); }
+  get searchPlatforms(): string[] { return this.search.platforms; }
 
-  /** 全平台并发搜索，按平台分组返回 */
-  async searchAll(keyword: string, platforms?: string[]): Promise<Map<string, Song[]>> {
-    const cfg = loadConfig();
-    const use = platforms?.length ? platforms : cfg.platforms;
-    const out = new Map<string, Song[]>();
-
-    await Promise.all(use.map(async (p) => {
-      try {
-        const list = await this.searchPlatform(p, keyword);
-        if (list.length) out.set(p, list);
-      } catch (e) {
-        logger.debug({ platform: p, err: String(e) }, '平台搜索失败');
-      }
+  listSources() {
+    return this.loader.list().map((s) => ({
+      ...s,
+      platformCoverage: s.platforms.map((p) => ({ platform: p, scripts: this.loader.countForPlatform(p) })),
     }));
-    return out;
   }
 
-  /** 指定平台搜索 */
+  /** 全平台并发搜索 */
+  async searchAll(keyword: string, platforms?: string[]): Promise<Map<string, Song[]>> {
+    return this.search.searchAll(keyword, platforms);
+  }
+
+  /** 单平台搜索 */
   async searchPlatform(platform: string, keyword: string): Promise<Song[]> {
-    const scripts = this.loader.forPlatform(platform);
-    const results: Song[] = [];
-    for (const s of scripts) {
-      try {
-        const list = await s.search(platform, keyword, 1);
-        if (list.length) { results.push(...list); break; }  // 一个脚本成功即够
-      } catch { /* 换下一个脚本 */ }
-    }
-    return results;
+    return this.search.searchPlatform(platform, keyword);
+  }
+
+  /** 取直链 */
+  async getUrl(song: Song, quality: string): Promise<SongUrl | null> {
+    return this.loader.getUrl(song.platform, song, quality);
   }
 
   /**
    * 按歌名+歌手找最佳匹配并取直链（点歌主入口）。
-   * 按平台优先级依次尝试，任何一个成功就返回。
+   * 按平台优先级依次尝试，任何平台成功即返回。
    */
   async resolve(keyword: string, artist?: string, quality?: string): Promise<{ song: Song; url: SongUrl } | null> {
     const cfg = loadConfig();
     const q = quality || cfg.quality;
-    const groups = await this.searchAll(keyword);
 
-    // 按配置的平台优先级排序
+    const groups = await this.searchAll(keyword);
+    if (groups.size === 0) {
+      logger.warn({ keyword, artist }, '所有平台搜索均无结果');
+      return null;
+    }
+    logger.debug({ keyword, hitPlatforms: [...groups.keys()] }, '搜索命中平台');
+
     const ordered = cfg.platforms.filter((p) => groups.has(p));
     for (const p of ordered) {
-      const best = pickBest(groups.get(p)!, keyword, artist);
-      if (!best) continue;
-      const url = await this.getUrl(best, q);
-      if (url) {
-        logger.info({ platform: p, title: best.title, artist: best.artist, quality: url.quality, source: url.source },
-          '音源命中');
-        return { song: best, url };
+      // 该平台必须有可用取链脚本
+      if (this.loader.countForPlatform(p) === 0) continue;
+
+      // 按相似度排序候选，逐个尝试（避免最佳匹配恰好取链失败）
+      const cands = groups.get(p)!.slice(0, 5)
+        .map((s) => ({ s, score: similarity(s.title, keyword) * 2 + (artist ? similarity(s.artist, artist) : 0.5) }))
+        .sort((a, b) => b.score - a.score);
+
+      for (const { s } of cands) {
+        const url = await this.getUrl(s, q);
+        if (url) {
+          logger.info({
+            platform: p, title: s.title, artist: s.artist,
+            quality: url.quality, source: url.source,
+          }, '音源命中');
+          return { song: s, url };
+        }
       }
     }
-    logger.warn({ keyword, artist }, '全部平台取链失败');
-    return null;
-  }
 
-  /** 取单曲直链（多脚本依次尝试） */
-  async getUrl(song: Song, quality: string): Promise<SongUrl | null> {
-    const scripts = this.loader.forPlatform(song.platform);
-    for (const s of scripts) {
-      try {
-        const u = await s.getMusicUrl(song.platform, song, quality);
-        if (u?.url) return u;
-      } catch { /* 换下一个 */ }
-    }
+    logger.warn({ keyword, artist }, '全部平台取链失败');
     return null;
   }
 }

@@ -12,6 +12,8 @@ export interface Song {
   coverUrl?: string;
   /** 可用音质档位 */
   qualities?: string[];
+  /** 原始脚本返回体（取链时回传给脚本） */
+  raw?: unknown;
 }
 
 export interface SongUrl {
@@ -22,7 +24,7 @@ export interface SongUrl {
   source: string;
 }
 
-/** 音源脚本（洛雪格式）的适配接口 */
+/** 音源脚本适配接口 */
 export interface SourceAdapter {
   name: string;
   platforms: string[];
