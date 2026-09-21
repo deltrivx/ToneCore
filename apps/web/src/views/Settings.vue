@@ -68,34 +68,88 @@
       <div class="tc-card p-4 space-y-4">
         <div class="flex items-center justify-between border-b border-ink-700 pb-2">
           <div class="text-sm font-medium text-slate-300">小爱音箱接入</div>
-          <span class="text-[11px]" :class="spk?.enabled ? 'text-emerald-400' : 'text-slate-600'">
-            {{ spk?.enabled ? '已启用' : '未启用' }}
-          </span>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px]" :class="spk?.enabled ? 'text-emerald-400' : 'text-slate-600'">
+              {{ spk?.enabled ? '监听中' : '未监听' }}
+            </span>
+            <span class="text-[11px] px-2 py-0.5 rounded-full"
+              :class="spk?.loggedIn ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-600/20 text-slate-500'">
+              {{ spk?.loggedIn ? '已登录' : '未登录' }}
+            </span>
+          </div>
         </div>
 
         <div class="text-xs text-slate-600">
-          填入小米账号凭据后即可语音点歌。凭据仅保存在本地 /data/speaker.yaml（权限 600）。
+          填写小米账号与密码即可登录，登录后设备与凭据自动获取（凭据保存在本地 /data/speaker.yaml，权限 600）。
         </div>
 
-        <div class="grid grid-cols-1 gap-3">
-          <div>
-            <label class="tc-label">账号 userId</label>
-            <input v-model="spkForm.userId" class="tc-input font-mono text-xs" placeholder="小米账号数字 ID" />
+        <!-- 未登录：账号密码表单 -->
+        <template v-if="!spk?.loggedIn">
+          <div class="grid grid-cols-1 gap-3">
+            <div>
+              <label class="tc-label">小米账号</label>
+              <input v-model="loginForm.username" class="tc-input font-mono text-xs"
+                placeholder="手机号 / 邮箱 / 小米 ID" @keyup.enter="doLogin" />
+            </div>
+            <div>
+              <label class="tc-label">密码</label>
+              <input v-model="loginForm.password" type="password" class="tc-input font-mono text-xs"
+                placeholder="小米账号密码" @keyup.enter="doLogin" />
+            </div>
           </div>
-          <div>
-            <label class="tc-label">serviceToken</label>
-            <input v-model="spkForm.serviceToken" type="password" class="tc-input font-mono text-xs" placeholder="登录后获取" />
+
+          <!-- 需要验证码 -->
+          <div v-if="needVerify" class="space-y-3 rounded-lg bg-ink-800/60 p-3">
+            <div class="text-xs text-amber-400">需要短信 / 邮箱验证码</div>
+            <div>
+              <label class="tc-label">验证码</label>
+              <input v-model="loginForm.code" class="tc-input font-mono text-xs"
+                placeholder="请输入收到的验证码" @keyup.enter="doVerify" />
+            </div>
+            <div class="flex gap-2">
+              <button class="tc-btn-primary text-xs" :disabled="busy" @click="doVerify">提交验证码</button>
+              <a v-if="verifyUrl" :href="verifyUrl" target="_blank" class="tc-btn text-xs">打开验证页</a>
+            </div>
           </div>
-          <div>
-            <label class="tc-label">ssecurity</label>
-            <input v-model="spkForm.ssecurity" type="password" class="tc-input font-mono text-xs" placeholder="签名密钥" />
+
+          <div class="flex gap-2">
+            <button class="tc-btn-primary" :disabled="busy" @click="doLogin">
+              {{ busy ? '登录中…' : '登录' }}
+            </button>
           </div>
-          <div>
-            <label class="tc-label">唤醒词（逗号分隔）</label>
-            <input :value="(spkForm.wakeWords || []).join(', ')" class="tc-input text-xs"
-              @input="e => spkForm.wakeWords = e.target.value.split(',').map(s => s.trim()).filter(Boolean)" />
+        </template>
+
+        <!-- 已登录：账号信息 + 设备列表 -->
+        <template v-else>
+          <div class="flex items-center justify-between gap-3 rounded-lg bg-ink-800/60 px-3 py-2">
+            <div class="min-w-0">
+              <div class="text-sm text-slate-300">{{ spk?.account || '已登录' }}</div>
+              <div class="text-[11px] text-slate-600 font-mono truncate">
+                userId {{ spk?.userId }} · {{ devices.length }} 台设备
+              </div>
+            </div>
+            <button class="tc-btn text-xs shrink-0" :disabled="busy" @click="doLogout">退出登录</button>
           </div>
-          <div class="grid grid-cols-2 gap-3">
+
+          <div v-if="devices.length" class="space-y-2">
+            <div v-for="dev in devices" :key="dev.id"
+              class="flex items-center justify-between gap-3 rounded-lg bg-ink-800/60 px-3 py-2">
+              <div class="min-w-0">
+                <div class="text-sm text-slate-300 truncate">
+                  {{ dev.name || dev.id }}
+                  <span v-if="dev.online" class="text-[10px] text-emerald-400 ml-1">在线</span>
+                  <span v-else class="text-[10px] text-slate-600 ml-1">离线</span>
+                </div>
+                <div class="text-[11px] text-slate-600 font-mono truncate">{{ dev.id }}</div>
+              </div>
+              <button class="tc-btn text-xs shrink-0" :disabled="busy" @click="testSay(dev.id)">试播语音</button>
+            </div>
+          </div>
+          <div v-else class="text-xs text-slate-600">
+            暂无设备。若音箱未上线，请先在米家 App 确认设备在线。
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 pt-1">
             <div>
               <label class="tc-label">轮询间隔 (秒)</label>
               <input type="number" min="1" v-model.number="spkForm.pollInterval" class="tc-input" />
@@ -112,34 +166,10 @@
               </label>
             </div>
           </div>
-        </div>
-
-        <div class="flex flex-wrap gap-2">
-          <button class="tc-btn-primary" :disabled="spkSaving" @click="saveSpeaker">
-            {{ spkSaving ? '保存中…' : '保存音箱配置' }}
+          <button class="tc-btn-primary" :disabled="busy" @click="saveSpeakerCfg">
+            {{ busy ? '保存中…' : '保存监听设置' }}
           </button>
-          <button class="tc-btn" :disabled="spkLoading" @click="loadDevices">
-            {{ spkLoading ? '拉取中…' : '拉取设备列表' }}
-          </button>
-          <span v-if="spkSaved" class="self-center text-sm text-emerald-400">已保存</span>
-        </div>
-
-        <div v-if="devices.length" class="space-y-2 pt-1">
-          <div class="text-xs text-slate-500">共 {{ devices.length }} 台设备</div>
-          <div v-for="dev in devices" :key="dev.deviceId"
-            class="flex items-center justify-between gap-3 rounded-lg bg-ink-800/60 px-3 py-2">
-            <div class="min-w-0">
-              <div class="text-sm text-slate-300 truncate">{{ dev.name || dev.deviceId }}</div>
-              <div class="text-[11px] text-slate-600 font-mono truncate">{{ dev.deviceId }}</div>
-            </div>
-            <div class="flex gap-2 shrink-0">
-              <button class="tc-btn text-xs" @click="testSay(dev.deviceId)">试播语音</button>
-            </div>
-          </div>
-        </div>
-        <div v-else-if="devicesLoaded" class="text-xs text-slate-600 pt-1">
-          未获取到设备。请确认凭据正确且已保存。
-        </div>
+        </template>
 
         <div v-if="spkMsg" class="text-xs" :class="spkMsg.ok ? 'text-emerald-400' : 'text-rose-400'">
           {{ spkMsg.text }}
@@ -165,16 +195,14 @@ const saving = ref(false);
 const saved = ref(false);
 
 const spk = ref(null);
-const spkForm = ref({
-  userId: "", serviceToken: "", ssecurity: "",
-  monitorEnabled: false, pollInterval: 1, wakeWords: [],
-});
-const spkSaving = ref(false);
-const spkSaved = ref(false);
-const spkLoading = ref(false);
+const spkForm = ref({ monitorEnabled: false, pollInterval: 1, wakeWords: [] });
+const loginForm = ref({ username: '', password: '', code: '' });
+const needVerify = ref(false);
+const verifyUrl = ref('');
+const verifySign = ref('');
+const busy = ref(false);
 const spkMsg = ref(null);
 const devices = ref([]);
-const devicesLoaded = ref(false);
 
 async function save() {
   saving.value = true; saved.value = false;
@@ -190,55 +218,88 @@ async function loadSpeaker() {
     const st = await api.speaker();
     spk.value = st;
     spkForm.value = {
-      userId: (st && st.account) || spkForm.value.userId || "",
-      serviceToken: spkForm.value.serviceToken || "",
-      ssecurity: spkForm.value.ssecurity || "",
       monitorEnabled: !!(st && st.enabled),
       pollInterval: (st && st.pollInterval) || 1,
-      wakeWords: (st && st.wakeWords) || spkForm.value.wakeWords || [],
-      deviceIds: (st && st.devices || []).map(d => d.deviceId).filter(Boolean),
+      wakeWords: (st && st.wakeWords) || [],
+      deviceIds: ((st && st.devices) || []).map(d => d.id).filter(Boolean),
     };
-    if (st && st.devices && st.devices.length) {
-      devices.value = st.devices;
-      devicesLoaded.value = true;
-    }
+    devices.value = (st && st.devices) || [];
+    if (st && st.account && !loginForm.value.username) loginForm.value.username = st.account;
   } catch (e) {
     spkMsg.value = { ok: false, text: '读取音箱状态失败：' + e };
   }
 }
 
-async function saveSpeaker() {
-  spkSaving.value = true; spkSaved.value = false; spkMsg.value = null;
+async function doLogin() {
+  busy.value = true; spkMsg.value = null; needVerify.value = false;
+  try {
+    const r = await api.speakerLogin(loginForm.value.username.trim(), loginForm.value.password);
+    if (r && r.ok) {
+      if (r.status) { spk.value = r.status; devices.value = r.status.devices || []; }
+      spkMsg.value = { ok: true, text: '登录成功' };
+      await loadSpeaker();
+    } else if (r && r.needVerify) {
+      needVerify.value = true;
+      verifyUrl.value = r.notificationUrl || '';
+      verifySign.value = r.sign || '';
+      spkMsg.value = { ok: false, text: '需要验证码，已发送至你的手机 / 邮箱' };
+    } else {
+      spkMsg.value = { ok: false, text: '登录失败：' + ((r && r.error) || '未知错误') };
+    }
+  } catch (e) {
+    spkMsg.value = { ok: false, text: '登录失败：' + e };
+  } finally { busy.value = false; }
+}
+
+async function doVerify() {
+  busy.value = true; spkMsg.value = null;
+  try {
+    const r = await api.speakerVerify({
+      username: loginForm.value.username.trim(),
+      password: loginForm.value.password,
+      code: loginForm.value.code.trim(),
+      sign: verifySign.value,
+    });
+    if (r && r.ok) {
+      needVerify.value = false;
+      if (r.status) { spk.value = r.status; devices.value = r.status.devices || []; }
+      spkMsg.value = { ok: true, text: '验证成功，已登录' };
+      await loadSpeaker();
+    } else {
+      spkMsg.value = { ok: false, text: '验证失败：' + ((r && r.error) || '验证码错误') };
+    }
+  } catch (e) {
+    spkMsg.value = { ok: false, text: '验证失败：' + e };
+  } finally { busy.value = false; }
+}
+
+async function doLogout() {
+  busy.value = true; spkMsg.value = null;
+  try {
+    const r = await api.speakerLogout();
+    spk.value = (r && r.status) || null;
+    devices.value = [];
+    loginForm.value = { username: '', password: '', code: '' };
+    needVerify.value = false;
+    spkMsg.value = { ok: true, text: '已退出登录' };
+  } catch (e) {
+    spkMsg.value = { ok: false, text: '退出失败：' + e };
+  } finally { busy.value = false; }
+}
+
+async function saveSpeakerCfg() {
+  busy.value = true; spkMsg.value = null;
   try {
     const st = await api.saveSpeaker(spkForm.value);
     spk.value = st;
-    spkSaved.value = true;
-    spkMsg.value = { ok: true, text: spkForm.value.monitorEnabled ? '配置已保存，监听已开启' : '配置已保存' };
-    setTimeout(() => { spkSaved.value = false; }, 2000);
-    await loadDevices();
+    spkMsg.value = { ok: true, text: spkForm.value.monitorEnabled ? '已保存，监听已开启' : '已保存，监听已关闭' };
   } catch (e) {
     spkMsg.value = { ok: false, text: '保存失败：' + e };
-  } finally { spkSaving.value = false; }
-}
-
-async function loadDevices() {
-  spkLoading.value = true; spkMsg.value = null;
-  try {
-    const r = await api.speakerDevices();
-    devices.value = (r && r.devices) || [];
-    devicesLoaded.value = true;
-    if (!devices.value.length) {
-      spkMsg.value = { ok: false, text: '未拉取到设备，请检查 userId / serviceToken / ssecurity' };
-    } else {
-      spkMsg.value = { ok: true, text: '已拉取 ' + devices.value.length + ' 台设备' };
-    }
-  } catch (e) {
-    spkMsg.value = { ok: false, text: '拉取设备失败：' + e };
-  } finally { spkLoading.value = false; }
+  } finally { busy.value = false; }
 }
 
 async function testSay(deviceId) {
-  spkMsg.value = null;
+  busy.value = true; spkMsg.value = null;
   try {
     const r = await api.speakerSay(deviceId, 'ToneCore 已接入');
     spkMsg.value = r && r.ok
@@ -246,7 +307,7 @@ async function testSay(deviceId) {
       : { ok: false, text: '试播失败，设备可能不可达' };
   } catch (e) {
     spkMsg.value = { ok: false, text: '试播失败：' + e };
-  }
+  } finally { busy.value = false; }
 }
 
 onMounted(async () => {

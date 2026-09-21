@@ -100,6 +100,116 @@ export interface MinaConfig {
   ssecurity: string;
 }
 
+/** 登录所需的最少凭据（与 SongLoft MIoT 契约一致：只需账号 + 密码） */
+export interface MiLoginCredentials {
+  /** 小米账号（手机号 / 邮箱 / 小米 ID） */
+  username: string;
+  /** 账号密码 */
+  password: string;
+}
+
+const MINA_LOGIN_BASE = "https://account.xiaomi.com";
+const MI_LOGIN_UA =
+  "MiHome/6.0.103 (com.xiaomi.mihome; build:6.0.103.1; iOS 14.4.0) Alamofire/6.0.103 MICO/iOSApp/appStore/6.0.103";
+
+/** 小米登录响应里带 &&&START&&& 前缀，需剥掉后再解析 JSON */
+function parseMiLoginBody(text: string): any {
+  const i = text.indexOf("&&&START&&&");
+  const body = i >= 0 ? text.slice(i + "&&&START&&&".length) : text;
+  try { return JSON.parse(body); } catch { return { raw: body }; }
+}
+
+export interface MiLoginResult {
+  ok: boolean;
+  /** 需要短信 / 邮箱验证码时返回，配合 verifyMiLogin 完成 */
+  needVerify?: { notificationUrl?: string; _sign?: string };
+  /** 登录成功后可直接构造 MinaConfig */
+  mina?: MinaConfig;
+  /** 失败原因（用于前端展示） */
+  error?: string;
+  raw?: unknown;
+}
+
+/**
+ * 步骤一：账号密码登录小米账号（对应 SongLoft 的 need_verify 分支）。
+ * 成功直接拿到 serviceToken/ssecurity → 可直接用；需要验证码则返回 notificationUrl。
+ */
+export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResult> {
+  const params = new URLSearchParams({
+    _json: "true",
+    qs: "%40%3A%2F%2Faccount.xiaomi.com%2Fpass%2FserviceLoginAuth2",
+    sid: "micoapi",
+    serviceParam: "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
+    user: c.username,
+    hash: c.password,
+  });
+
+  const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2?_json=true`, {
+    method: "POST",
+    headers: {
+      "User-Agent": MI_LOGIN_UA,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Cookie: "sdkVersion=3.9; deviceId=TC",
+    },
+    body: params.toString(),
+  });
+
+  const j = parseMiLoginBody(await res.text());
+  if (!j || typeof j !== "object") return { ok: false, error: "登录响应无法解析", raw: j };
+
+  const userId = j.userId ? String(j.userId) : "";
+  const ssecurity = String(j.ssecurity ?? "");
+  const serviceToken = String(j.serviceToken ?? "");
+
+  if (serviceToken && ssecurity && userId) {
+    return { ok: true, mina: { userId, serviceToken, ssecurity } };
+  }
+
+  const code = Number(j.code ?? 0);
+  if (code === 70016 || j.notificationUrl) {
+    return {
+      ok: false,
+      needVerify: { notificationUrl: String(j.notificationUrl ?? ""), _sign: String(j._sign ?? "") },
+      error: "需要短信/邮箱验证码",
+      raw: j,
+    };
+  }
+
+  return { ok: false, error: String(j.desc ?? j.error ?? j.message ?? `登录失败（code=${code}）`), raw: j };
+}
+
+/** 步骤二：提交短信 / 邮箱验证码完成登录 */
+export async function verifyMiLogin(
+  c: MiLoginCredentials,
+  code: string,
+  sign: string,
+): Promise<MiLoginResult> {
+  const params = new URLSearchParams({
+    _json: "true",
+    user: c.username,
+    code,
+    _sign: sign,
+    callback: "https://account.xiaomi.com/pass/loginAuth2?sid=micoapi",
+    sid: "micoapi",
+  });
+
+  const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2`, {
+    method: "POST",
+    headers: { "User-Agent": MI_LOGIN_UA, "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+
+  const j = parseMiLoginBody(await res.text());
+  const userId = j?.userId ? String(j.userId) : "";
+  const ssecurity = String(j?.ssecurity ?? "");
+  const serviceToken = String(j?.serviceToken ?? "");
+  if (serviceToken && ssecurity && userId) {
+    return { ok: true, mina: { userId, serviceToken, ssecurity } };
+  }
+  return { ok: false, error: String(j?.desc ?? j?.error ?? "验证码校验失败"), raw: j };
+}
+
+
 const MINA_BASE = 'https://api2.mina.mi.com';
 const MINA_USER_AGENT = 'MiHome/6.0.103 (com.xiaomi.mihome; build:6.0.103.1; iOS 14.4.0) Alamofire/6.0.103 MICO/iOSApp/appStore/6.0.103';
 

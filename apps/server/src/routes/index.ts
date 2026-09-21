@@ -83,6 +83,41 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
 
   // ---------- 音箱 ----------
   app.get('/api/speaker', async () => d.speaker.status);
+  // 账号密码登录（对齐 SongLoft MIoT 契约）
+  app.post('/api/speaker/login', async (req) => {
+    const b = (req.body || {}) as any;
+    const username = String(b.username || '').trim();
+    const password = String(b.password || '');
+    if (!username || !password) return { ok: false, error: '请填写账号与密码' };
+    const r = await d.speaker.login(username, password);
+    return {
+      ok: r.ok,
+      needVerify: !!r.needVerify,
+      notificationUrl: r.needVerify ? r.needVerify.notificationUrl : null,
+      sign: r.needVerify ? r.needVerify._sign : null,
+      error: r.error ?? null,
+      status: d.speaker.status,
+    };
+  });
+
+  // 提交短信 / 邮箱验证码
+  app.post('/api/speaker/verify', async (req) => {
+    const b = (req.body || {}) as any;
+    const username = String(b.username || '').trim();
+    const password = String(b.password || '');
+    const code = String(b.code || '').trim();
+    const sign = String(b.sign || '');
+    if (!username || !password || !code || !sign) return { ok: false, error: '验证码参数不完整' };
+    const r = await d.speaker.verify(username, password, code, sign);
+    return { ok: r.ok, error: r.error ?? null, status: d.speaker.status };
+  });
+
+  // 退出登录
+  app.post('/api/speaker/logout', async () => {
+    d.speaker.logout();
+    return { ok: true, status: d.speaker.status };
+  });
+
   app.post('/api/speaker/config', async (req) => {
     d.speaker.configure(req.body as any);
     return d.speaker.status;

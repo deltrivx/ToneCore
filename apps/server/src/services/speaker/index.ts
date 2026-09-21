@@ -4,7 +4,9 @@ import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 import {
   fetchConversations, fetchDevices, playUrl, tts,
+  loginMiAccount, verifyMiLogin,
   type MinaConfig,
+  type MiLoginResult,
 } from './protocol.js';
 
 export interface SpeakerDevice {
@@ -15,12 +17,24 @@ export interface SpeakerDevice {
 }
 
 export interface SpeakerConfig extends Partial<MinaConfig> {
+  /** 小米账号（手机号 / 邮箱 / 小米 ID）—— 用户只需填这一项 + 密码 */
+  username?: string;
+  /** 账号密码（仅登录阶段使用，落盘权限 600） */
+  password?: string;
   monitorEnabled: boolean;
   deviceIds: string[];
   /** 轮询间隔（秒） */
   pollInterval: number;
   /** 唤醒词前缀（用于识别点歌指令） */
   wakeWords: string[];
+  /** 登录 token 过期时间戳（毫秒） */
+  tokenExpiresAt?: number;
+}
+
+/** 账号脱敏：13035699603 -> 130****03 */
+function maskAccount(a: string): string {
+  if (a.length <= 5) return a;
+  return a.replace(/^(\d{3})\d+(\d{2})$/, "$1****$2");
 }
 
 const DEFAULT_CFG: SpeakerConfig = {
@@ -113,15 +127,85 @@ export class SpeakerService {
 
   get enabled(): boolean { return this.cfg.monitorEnabled && !!this.cfg.serviceToken; }
 
+  get loggedIn(): boolean {
+    return !!(this.cfg.userId && this.cfg.serviceToken && this.cfg.ssecurity);
+  }
+
   get status() {
     return {
       enabled: this.enabled,
-      account: this.cfg.userId ? String(this.cfg.userId).replace(/^(\d{3})\d+(\d{2})$/, '$1****$2') : null,
-      credentialReady: !!(this.cfg.userId && this.cfg.serviceToken && this.cfg.ssecurity),
+      loggedIn: this.loggedIn,
+      account: this.cfg.username ? maskAccount(this.cfg.username) : null,
+      userId: this.cfg.userId ?? null,
+      credentialReady: this.loggedIn,
       deviceCount: this.devices.length,
       devices: this.devices,
       pollInterval: this.cfg.pollInterval,
+      wakeWords: this.cfg.wakeWords,
+      deviceIds: this.cfg.deviceIds,
+      tokenExpiresAt: this.cfg.tokenExpiresAt ?? null,
     };
+  }
+
+  /** 账号密码登录（对齐 SongLoft MIoT 契约：只需 username + password） */
+  async login(username: string, password: string): Promise<MiLoginResult> {
+    const r = await loginMiAccount({ username, password });
+    if (r.ok && r.mina) {
+      this.cfg = {
+        ...this.cfg,
+        username, password,
+        userId: r.mina.userId,
+        serviceToken: r.mina.serviceToken,
+        ssecurity: r.mina.ssecurity,
+        tokenExpiresAt: Date.now() + 30 * 24 * 3600 * 1000,
+      };
+      this.persist();
+      logger.info({ account: maskAccount(username) }, '音箱账号登录成功');
+      await this.refreshDevices();
+      if (this.cfg.monitorEnabled) this.startMonitor();
+      return r;
+    }
+    if (r.needVerify) {
+      logger.info({ account: maskAccount(username) }, '音箱登录需要验证码');
+      return r;
+    }
+    logger.warn({ err: r.error }, '音箱账号登录失败');
+    return r;
+  }
+
+  /** 提交短信 / 邮箱验证码完成登录 */
+  async verify(username: string, password: string, code: string, sign: string): Promise<MiLoginResult> {
+    const r = await verifyMiLogin({ username, password }, code, sign);
+    if (r.ok && r.mina) {
+      this.cfg = {
+        ...this.cfg,
+        username, password,
+        userId: r.mina.userId,
+        serviceToken: r.mina.serviceToken,
+        ssecurity: r.mina.ssecurity,
+        tokenExpiresAt: Date.now() + 30 * 24 * 3600 * 1000,
+      };
+      this.persist();
+      await this.refreshDevices();
+      if (this.cfg.monitorEnabled) this.startMonitor();
+    }
+    return r;
+  }
+
+  /** 退出登录：清空凭据，保留监听偏好 */
+  logout(): void {
+    this.stopMonitor();
+    this.cfg = {
+      ...this.cfg,
+      userId: undefined,
+      serviceToken: undefined,
+      ssecurity: undefined,
+      tokenExpiresAt: undefined,
+      password: undefined,
+    };
+    this.devices = [];
+    this.persist();
+    logger.info('音箱账号已退出');
   }
 
   configure(cfg: Partial<SpeakerConfig>) {
