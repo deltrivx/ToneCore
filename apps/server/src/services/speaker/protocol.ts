@@ -135,21 +135,42 @@ export interface MiLoginResult {
  * 成功直接拿到 serviceToken/ssecurity → 可直接用；需要验证码则返回 notificationUrl。
  */
 export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResult> {
+  // 关键：小米要求先走 authStart 拿登录上下文（context 即 _sign），
+  // 缺少它会稳定返回 code=70016「登录验证失败」——与账号密码是否正确无关。
+  let sign = "";
+  try {
+    const startRes = await fetch(
+      `${MINA_LOGIN_BASE}/fe/service/identity/authStart?sid=micoapi&_locale=zh_CN&_json=true`,
+      {
+        method: "GET",
+        headers: {
+          "User-Agent": MI_LOGIN_UA,
+          "Accept": "application/json, text/plain, */*",
+        },
+      },
+    );
+    const startBody = parseMiLoginBody(await startRes.text());
+    sign = String(startBody?.context ?? startBody?._sign ?? "");
+  } catch (e) {
+    logger.debug({ err: String(e) }, "authStart 获取登录上下文失败，继续尝试无 sign 登录");
+  }
+
   const params = new URLSearchParams({
     _json: "true",
     qs: "%40%3A%2F%2Faccount.xiaomi.com%2Fpass%2FserviceLoginAuth2",
     sid: "micoapi",
-    serviceParam: "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
+    serviceParam:
+      "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
     user: c.username,
     hash: c.password,
   });
+  if (sign) params.set("_sign", sign);
 
   const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2?_json=true`, {
     method: "POST",
     headers: {
       "User-Agent": MI_LOGIN_UA,
       "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: "sdkVersion=3.9; deviceId=TC",
     },
     body: params.toString(),
   });
@@ -165,17 +186,43 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
     return { ok: true, mina: { userId, serviceToken, ssecurity } };
   }
 
-  const code = Number(j.code ?? 0);
-  if (code === 70016 || j.notificationUrl) {
+  // 需要短信 / 邮箱验证码：把你自己的 _sign 一并带出去，供第二步提交
+  const needCode = j.notificationUrl || String(j._sign ?? "") || sign;
+  if (needCode) {
     return {
       ok: false,
-      needVerify: { notificationUrl: String(j.notificationUrl ?? ""), _sign: String(j._sign ?? "") },
+      needVerify: {
+        notificationUrl: String(j.notificationUrl ?? ""),
+        _sign: String(j._sign ?? sign),
+      },
       error: "需要短信/邮箱验证码",
       raw: j,
     };
   }
 
-  return { ok: false, error: String(j.desc ?? j.error ?? j.message ?? `登录失败（code=${code}）`), raw: j };
+  const code = Number(j.code ?? 0);
+  return {
+    ok: false,
+    error: describeLoginCode(code, String(j.desc ?? j.description ?? "")),
+    raw: j,
+  };
+}
+
+/** 把小米错误码翻成人能看懂的一句话 */
+export function describeLoginCode(code: number, desc: string): string {
+  const table: Record<number, string> = {
+    70016: "登录验证失败：未取得登录上下文（authStart）或账号密码不匹配",
+    70002: "账号或密码错误",
+    70003: "需要人机验证（验证码 / 滑块）",
+    70004: "登录次数过多，已限流，请稍后再试",
+    70005: "账号被锁定，请前往小米账号中心解锁",
+    70011: "需要短信二次验证",
+    70014: "该账号未绑定手机或邮箱",
+    87001: "验证码错误或已过期",
+    87002: "验证码错误或已过期",
+  };
+  const base = table[code] ?? desc ?? `登录失败（code=${code}）`;
+  return code && !table[code] ? `${base}（code=${code}）` : base;
 }
 
 /** 步骤二：提交短信 / 邮箱验证码完成登录 */
@@ -189,7 +236,7 @@ export async function verifyMiLogin(
     user: c.username,
     code,
     _sign: sign,
-    callback: "https://account.xiaomi.com/pass/loginAuth2?sid=micoapi",
+    callback: "https://api2.mina.mi.com/sts",
     sid: "micoapi",
   });
 
