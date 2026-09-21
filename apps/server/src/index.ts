@@ -24,6 +24,14 @@ function detectLanIP(): string {
   return '127.0.0.1';
 }
 
+// 兜底：脚本沙箱/第三方库的异常不允许带崩主进程
+process.on('unhandledRejection', (reason) => {
+  logger.warn({ err: String(reason).slice(0, 300) }, '未处理的 Promise 拒绝（已忽略）');
+});
+process.on('uncaughtException', (err) => {
+  logger.error({ err: String(err).slice(0, 300) }, '未捕获异常（已忽略，进程继续）');
+});
+
 async function main() {
   const cfg = loadConfig();
   ensureDirs(cfg);

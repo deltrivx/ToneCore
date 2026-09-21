@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { Readable } from 'node:stream';
 import PQueue from 'p-queue';
 import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
@@ -10,14 +9,26 @@ import type { Song, SongUrl } from '../source/types.js';
 /** 音频 magic number 校验：确认下到的是音频而不是 HTML 错误页 */
 function sniffAudio(head: Buffer): { ok: boolean; ext: string; mime: string } {
   const hex = head.subarray(0, 4).toString('hex');
-  if (hex.startsWith('664c6143')) return { ok: true, ext: '.flac', mime: 'audio/flac' };   // fLaC
-  if (hex.startsWith('494433')) return { ok: true, ext: '.mp3', mime: 'audio/mpeg' };      // ID3
-  if (hex.startsWith('fff3') || hex.startsWith('fffb')) return { ok: true, ext: '.mp3', mime: 'audio/mpeg' };
-  if (hex.startsWith('4f676753')) return { ok: true, ext: '.ogg', mime: 'audio/ogg' };    // OggS
-  if (hex.startsWith('52494646')) return { ok: true, ext: '.wav', mime: 'audio/wav' };    // RIFF
-  // m4a / mp4: 第 4~8 字节是 ftyp
+  // FLAC: fLaC
+  if (hex.startsWith('664c6143')) return { ok: true, ext: '.flac', mime: 'audio/flac' };
+  // MP3: ID3v2 标签（ID3\x02/\x03/\x04）或裸帧同步字
+  if (hex.startsWith('494433')) return { ok: true, ext: '.mp3', mime: 'audio/mpeg' };
+  if (hex.startsWith('fff2') || hex.startsWith('fff3') || hex.startsWith('fffb') || hex.startsWith('fffa')) {
+    return { ok: true, ext: '.mp3', mime: 'audio/mpeg' };
+  }
+  // AAC ADTS
+  if (hex.startsWith('fff1')) return { ok: true, ext: '.aac', mime: 'audio/aac' };
+  // Ogg / WAV / APE
+  if (hex.startsWith('4f676753')) return { ok: true, ext: '.ogg', mime: 'audio/ogg' };
+  if (hex.startsWith('52494646')) return { ok: true, ext: '.wav', mime: 'audio/wav' };
+  if (hex.startsWith('4d414320')) return { ok: true, ext: '.ape', mime: 'audio/x-ape' };   // MAC 
+  // m4a / mp4: 第 4~8 字节为 ftyp
   if (head.length >= 12 && head.subarray(4, 8).toString('ascii') === 'ftyp') {
     return { ok: true, ext: '.m4a', mime: 'audio/mp4' };
+  }
+  // WMA / ASF
+  if (head.length >= 16 && head.subarray(0, 16).toString('hex').startsWith('3026b2758e66cf11')) {
+    return { ok: true, ext: '.wma', mime: 'audio/x-ms-wma' };
   }
   return { ok: false, ext: '', mime: '' };
 }
@@ -71,11 +82,19 @@ export class Downloader {
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
-      // 先读前 512 字节做格式嗅探
-      const reader = res.body.getReader();
-      const first = await reader.read();
-      if (first.done || !first.value) throw new Error('响应体为空');
-      const head = Buffer.from(first.value);
+      // 用 asyncIterator 读前若干字节做格式嗅探（不锁流，后续还能继续读）
+      const chunks: Buffer[] = [];
+      let headLen = 0;
+      const iterator = (res.body as any)[Symbol.asyncIterator]();
+      while (headLen < 512) {
+        const { value, done } = await iterator.next();
+        if (done) break;
+        const buf = Buffer.from(value);
+        chunks.push(buf);
+        headLen += buf.length;
+      }
+      const head = Buffer.concat(chunks);
+      if (head.length === 0) throw new Error('响应体为空');
 
       const sniff = sniffAudio(head);
       if (!sniff.ok) {
@@ -92,18 +111,19 @@ export class Downloader {
       const absFile = path.join(cfg.musicDir, relFile);
       fs.mkdirSync(path.dirname(absFile), { recursive: true });
 
-      // 落盘（流式写入临时文件，完成后原子改名）
+      // 落盘（写临时文件 → 原子改名）
       const tmp = absFile + '.part';
-      const out = fs.createWriteStream(tmp);
-      await new Promise<void>((resolve, reject) => {
-        out.on('finish', resolve);
-        out.on('error', reject);
-        // 先写已读到的头部，再续上剩余流
-        out.write(head);
-        Readable.fromWeb(res.body as any)
-          .on('error', reject)
-          .pipe(out);
-      });
+      const fd = fs.openSync(tmp, 'w');
+      try {
+        fs.writeSync(fd, head);                       // 已读到的头部
+        for (;;) {                                    // 继续读剩余
+          const { value, done } = await iterator.next();
+          if (done) break;
+          fs.writeSync(fd, Buffer.from(value));
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
       fs.renameSync(tmp, absFile);
 
       const size = fs.statSync(absFile).size;

@@ -39,7 +39,7 @@ const DEFAULTS: ToneCoreCfg = {
   embedMetadata: true,
   downloadConcurrency: 1,
   downloadIntervalMs: 3000,
-  platforms: ['kw', 'kg', 'wy', 'mg', 'tx'],
+  platforms: ['kw', 'kg', 'tx', 'wy', 'mg'],
   sourcesDir: '',
 };
 

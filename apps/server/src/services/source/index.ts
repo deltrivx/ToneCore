@@ -2,6 +2,7 @@ import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 import { SourceLoader } from './loader.js';
 import { SearchEngine } from '../search/index.js';
+import { fetchKwUrl } from '../search/platforms/kw-url.js';
 import type { Song, SongUrl } from './types.js';
 
 export * from './types.js';
@@ -72,8 +73,17 @@ export class SourceEngine {
     return this.search.searchPlatform(platform, keyword);
   }
 
-  /** 取直链 */
+  /**
+   * 取直链。
+   * 策略：先用「自研直连」（不依赖第三方，最稳），失败再回退音源脚本。
+   */
   async getUrl(song: Song, quality: string): Promise<SongUrl | null> {
+    // 1) 自研直连（目前支持酷我）
+    if (song.platform === 'kw') {
+      const builtin = await fetchKwUrl(song, quality);
+      if (builtin) return builtin;
+    }
+    // 2) 回退：洛雪音源脚本（多脚本并行）
     return this.loader.getUrl(song.platform, song, quality);
   }
 
@@ -98,7 +108,7 @@ export class SourceEngine {
       if (this.loader.countForPlatform(p) === 0) continue;
 
       // 按相似度排序候选，逐个尝试（避免最佳匹配恰好取链失败）
-      const cands = groups.get(p)!.slice(0, 5)
+      const cands = groups.get(p)!.slice(0, 8)
         .map((s) => ({ s, score: similarity(s.title, keyword) * 2 + (artist ? similarity(s.artist, artist) : 0.5) }))
         .sort((a, b) => b.score - a.score);
 

@@ -15,6 +15,19 @@ import { logger } from '../../logger.js';
  *   'request'  宿主向脚本派发任务（搜歌/取链），脚本调用 lx.send('request', payload)
  */
 
+const PROTOCOL_VERSION = '2.6.0';
+
+/** 洛雪环境对象（脚本通过 lx.env / lx.ENV 读取） */
+const LX_ENV = {
+  getUserAgent: () =>
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  os: 'win10',
+  version: PROTOCOL_VERSION,
+  platform: 'desktop',
+  /** 部分脚本读这个判断是否桌面端 */
+  isDesktop: true,
+};
+
 export interface LxSourceInfo {
   name?: string;
   type?: string;
@@ -47,11 +60,46 @@ export interface LxScriptInstance {
   dispose(): void;
 }
 
+/**
+ * 安全 console：脚本常打印混淆代码/大对象，必须截断，否则刷爆日志。
+ * 同时避免脚本通过 console 抛出未捕获异常。
+ */
+function makeSafeConsole(filePath: string) {
+  const MAX = 600;
+  const fmt = (a: unknown[]) => {
+    try {
+      const s = a
+        .map((x) => {
+          if (typeof x === 'string') return x;
+          if (x instanceof Error) return `${x.name}: ${x.message}`;
+          try { return JSON.stringify(x); } catch { return String(x); }
+        })
+        .join(' ');
+      return s.length > MAX ? s.slice(0, MAX) + `…(+${s.length - MAX})` : s;
+    } catch {
+      return '[unprintable]';
+    }
+  };
+  const log = (...a: unknown[]) => {
+    try { logger.debug({ src: filePath }, fmt(a)); } catch { /* 绝不抛出 */ }
+  };
+  // 五音源脚本大量使用 group/table 等；缺失会直接抛 TypeError 导致脚本不可用
+  return {
+    log, warn: log, error: log, info: log, debug: log, trace: log,
+    group: log, groupCollapsed: log, groupEnd: () => {}, dir: log, table: log,
+    assert: (cond: unknown, ...a: unknown[]) => { if (!cond) log('Assertion failed', ...a); },
+    count: () => {}, countReset: () => {},
+    time: () => {}, timeEnd: () => {}, timeLog: () => {},
+    clear: () => {}, profile: () => {}, profileEnd: () => {},
+  };
+}
+
 /** 构造洛雪脚本所需的 `lx` 全局对象 */
 function buildLx(
   onSend: (event: string, data: unknown) => void,
   onHttp: (req: Record<string, unknown>) => void,
   scriptName: string,
+  scriptDescription = '',
 ): Record<string, unknown> {
   const handlers: Record<string, (payload: unknown) => void> = {};
 
@@ -110,15 +158,34 @@ function buildLx(
     utils,
     version: '2.6.0',
 
-    ENV: {
-      getUserAgent: () =>
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      os: 'win10',
-      version: '2.6.0',
+    /** 洛雪规范：小写 env（脚本读的就是这个） */
+    env: LX_ENV,
+    /** 兼容大写的实现 */
+    ENV: LX_ENV,
+
+    EVENT_NAMES: {
+      request: 'request',
+      inited: 'inited',
+      updateAlert: 'updateAlert',
     },
 
-    EVENT_NAMES: { request: 'request', inited: 'inited', updateAlert: 'updateAlert' },
-    currentScriptInfo: { name: scriptName, description: '', version: '' },
+    /** 脚本元信息：部分脚本会读回校验，必须字段齐全 */
+    currentScriptInfo: {
+      name: scriptName,
+      description: scriptDescription,
+      version: '1.0.0',
+      author: 'ToneCore',
+      homepage: 'https://github.com/deltrivx/ToneCore',
+    },
+
+    /** 洛雪把脚本信息也挂在 lx.info（部分实现） */
+    info: {
+      name: scriptName,
+      description: scriptDescription,
+      version: '1.0.0',
+      author: 'ToneCore',
+      homepage: 'https://github.com/deltrivx/ToneCore',
+    },
 
     /** 内部：暴露给宿主拿 handler（非洛雪规范，仅供运行时使用） */
     __getHandler: (name: string) => handlers[name],
@@ -202,17 +269,11 @@ export function loadLxScript(filePath: string, code: string): Promise<LxScriptIn
       })();
     };
 
-    const lx = buildLx(onSend, onHttp, filePath.split('/').pop() || 'unknown');
+    const lx = buildLx(onSend, onHttp, filePath.split('/').pop() || 'unknown', '');
 
     const sandbox: Record<string, unknown> = {
       lx,
-      console: {
-        log: (...a: unknown[]) => logger.debug({ src: filePath }, a.map(String).join(' ')),
-        warn: (...a: unknown[]) => logger.debug({ src: filePath }, a.map(String).join(' ')),
-        error: (...a: unknown[]) => logger.debug({ src: filePath }, a.map(String).join(' ')),
-        info: (...a: unknown[]) => logger.debug({ src: filePath }, a.map(String).join(' ')),
-        debug: () => {},
-      },
+      console: makeSafeConsole(filePath),
       setTimeout, clearTimeout, setInterval, clearInterval,
       Buffer, URL, URLSearchParams, TextEncoder, TextDecoder,
       JSON, Math, Date, Promise, Object, Array, String, Number, Boolean,
@@ -220,7 +281,15 @@ export function loadLxScript(filePath: string, code: string): Promise<LxScriptIn
       encodeURIComponent, decodeURIComponent, encodeURI, decodeURI,
       parseInt, parseFloat, isNaN, isFinite, escape, unescape,
       fetch,
-      process: { env: {}, platform: 'linux', version: 'v20.0.0', nextTick: (f: () => void) => setTimeout(f, 0) },
+      // 不暴露真实 process：脚本常探测 os/版本，缺失也不影响
+      process: {
+        env: { LANG: 'zh_CN.UTF-8' },
+        platform: 'linux',
+        arch: 'x64',
+        version: 'v20.0.0',
+        versions: { node: '20.0.0' },
+        nextTick: (f: () => void) => setTimeout(f, 0),
+      },
       __filename: filePath,
       __dirname: filePath.replace(/\/[^/]+$/, ''),
     };
