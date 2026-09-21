@@ -9,7 +9,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/deltrivx/ToneCore/issues</Support>
   <Project>https://github.com/deltrivx/ToneCore</Project>
-  <Overview>一体化音乐中枢 · 音源搜索 / 无损落库 / 自动刮削 / 小爱音箱接入&#13;&#13;让小爱音箱想听什么就听什么，并且听完自动进你的本地曲库。&#13;&#13;核心能力：&#13;· 设备接入：小爱音箱语音点歌，对话轮询 + 意图解析&#13;· 音源引擎：多平台并发搜歌，自动打分选源、失败降级&#13;· 无损落库：点播自动下载 FLAC/320K，按 歌手/专辑/歌名 归档&#13;· 自动刮削：嵌入 ID3/FLAC 标签、封面&#13;· 极简控制台：深色科技风，PC / 移动双端适配</Overview>
+  <Overview>一体化音乐中枢 · 音源搜索 / 无损落库 / 自动刮削 / 小爱音箱接入&#13;&#13;让小爱音箱想听什么就听什么，并且听完自动进你的本地曲库。&#13;&#13;核心能力：&#13;· 设备接入：小爱音箱语音点歌，对话轮询 + 意图解析&#13;· 播放控制：上一首 / 下一首 / 暂停 / 继续 / 停止，音量绝对与相对调节&#13;· 音源引擎：多平台并发搜歌，自动打分选源、失败降级&#13;· 无损落库：点播自动下载 FLAC/320K，按 歌手/专辑/歌名 归档&#13;· 自动刮削：嵌入 ID3/FLAC 标签、封面、歌词&#13;· 本地曲库：SQLite 索引，检索 / 分页 / 试听 / 统计&#13;· 极简控制台：深色科技风，PC / 移动双端适配</Overview>
   <Category>MediaApp:Music MediaServer:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/deltrivx/ToneCore/main/docker/tonecore.xml</TemplateURL>

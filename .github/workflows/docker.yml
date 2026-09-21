@@ -44,7 +44,45 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push
+      # 单架构先构建并落盘，既验证构建能走通，也用于启动冒烟测试。
+      # 关键：这一步若卡住会明确失败，而不是让整条流水线长时间挂起。
+      - name: Build (amd64, load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: tonecore:smoke
+          build-args: |
+            TONECORE_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 启动冒烟测试：原生模块能否加载、服务能否起来、健康检查是否通过。
+      # 这样「镜像构建成功但容器跑不起来」不会再溜到线上。
+      - name: Smoke test (boot + health)
+        run: |
+          set -e
+          docker run -d --name tc-smoke -p 18090:8090 tonecore:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18090/api/health > /tmp/health.json 2>/dev/null; then
+              echo "健康检查通过："; cat /tmp/health.json; echo
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "::error::容器 60 秒内未通过健康检查，输出容器日志："
+              docker logs tc-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          # 曲库与配置接口也应正常响应（覆盖 sqlite 读写路径）
+          curl -fsS http://127.0.0.1:18090/api/library/stats
+          docker rm -f tc-smoke
+
+      # 双架构正式构建并推送（amd64 命中上一步缓存，只补 arm64）
+      - name: Build and push (multi-arch)
         uses: docker/build-push-action@v6
         with:
           context: .

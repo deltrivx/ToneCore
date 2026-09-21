@@ -10,8 +10,9 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?logo=docker&logoColor=white)](docker/)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-339933.svg?logo=nodedotjs&logoColor=white)](package.json)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-339933.svg?logo=nodedotjs&logoColor=white)](package.json)
 [![Platform](https://img.shields.io/badge/platform-amd64%20%7C%20arm64-lightgrey.svg)](docker/)
+[![Image](https://img.shields.io/badge/image-ghcr.io-2496ED.svg)](https://github.com/deltrivx/ToneCore/pkgs/container/tonecore)
 
 </div>
 

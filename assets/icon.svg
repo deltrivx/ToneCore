@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    ToneCore 图标 · 圆角方底 · 音符 + 声波
+    主蓝 #185FA5 / 音符白 #FFFFFF / 声波琥珀 #EF9F27
+
+    构图口径：白色音符 + 琥珀声波的联合包围盒必须居中于画布。
+    音符主体 y:320~724（中心 522）；声波 y:448~576（中心 512）。
+    把音符整体下移 0，声波上移到与音符视觉重心一致，
+    并把音符略微放大以填满安全区，减少底部空蓝。
+  -->
+
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="#185FA5"/>
+
+  <!-- 声波：居中对齐音符的垂直重心（中心 512），并贴近音符两侧 -->
+  <path d="M 288 442 A 152 152 0 0 0 288 582"
+        fill="none" stroke="#EF9F27" stroke-width="56" stroke-linecap="round"/>
+  <path d="M 736 442 A 152 152 0 0 1 736 582"
+        fill="none" stroke="#EF9F27" stroke-width="56" stroke-linecap="round"/>
+
+  <!-- 音符：放大并居中。白色包围盒目标 x:326~700 → 已归中，再整体略放大 -->
+  <g transform="translate(512 512) scale(1.06) translate(-512 -512) translate(-37 0)">
+    <ellipse cx="470" cy="640" rx="110" ry="82"
+             fill="#FFFFFF" transform="rotate(-20 470 640)"/>
+    <rect x="540" y="320" width="82" height="340" fill="#FFFFFF"/>
+    <path d="M 622 320
+             C 712 334 752 400 736 478
+             C 724 428 686 392 622 374 Z"
+          fill="#FFFFFF"/>
+  </g>
+</svg>
