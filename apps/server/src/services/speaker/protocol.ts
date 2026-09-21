@@ -227,8 +227,12 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
 
 /** 把小米错误码翻成人能看懂的一句话 */
 export function describeLoginCode(code: number, desc: string): string {
+  // code=0 是小米的「成功」标志，绝不能当成错误信息抛出去
+  // （否则 desc="成功" 会被前端拼成「验证失败：成功」）
+  if (code === 0) return "";
+
   const table: Record<number, string> = {
-    70016: "登录验证失败：未取得登录上下文（authStart）或账号密码不匹配",
+    70016: "登录验证失败：账号密码不匹配或登录上下文缺失",
     70002: "账号或密码错误",
     70003: "需要人机验证（验证码 / 滑块）",
     70004: "登录次数过多，已限流，请稍后再试",
@@ -237,9 +241,13 @@ export function describeLoginCode(code: number, desc: string): string {
     70014: "该账号未绑定手机或邮箱",
     87001: "验证码错误或已过期",
     87002: "验证码错误或已过期",
+    87003: "验证码错误次数过多，请重新获取",
   };
-  const base = table[code] ?? desc ?? `登录失败（code=${code}）`;
-  return code && !table[code] ? `${base}（code=${code}）` : base;
+  if (table[code]) return table[code];
+  // 小米的 desc 有时是「成功」「ok」这类无信息量的词，不能当错误用
+  const d = (desc || "").trim();
+  if (d && !/^(成功|ok|OK|success)$/i.test(d)) return `${d}（code=${code}）`;
+  return `登录失败（code=${code}）`;
 }
 
 /** 步骤二：提交短信 / 邮箱验证码完成登录 */
