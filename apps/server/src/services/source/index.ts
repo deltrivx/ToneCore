@@ -3,6 +3,8 @@ import { loadConfig } from '../../config.js';
 import { SourceLoader } from './loader.js';
 import { SearchEngine } from '../search/index.js';
 import { fetchKwUrl } from '../search/platforms/kw-url.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { Song, SongUrl } from './types.js';
 
 export * from './types.js';
@@ -111,6 +113,127 @@ export class SourceEngine {
       ...s,
       platformCoverage: s.platforms.map((p) => ({ platform: p, scripts: this.loader.countForPlatform(p) })),
     }));
+  }
+
+  /** 完整清单：含加载失败的脚本（界面必须能看到它们和失败原因） */
+  listAllSources() {
+    const health = this.healthSnapshotMap();
+    return this.loader.listAll().map((s) => {
+      const h = health[s.file] || health[s.name] || null;
+      return {
+        ...s,
+        platformCoverage: s.platforms.map((p) => ({ platform: p, scripts: this.loader.countForPlatform(p) })),
+        healthDetail: h,
+      };
+    });
+  }
+
+  /** 加载失败清单 */
+  loadFailures() {
+    return this.loader.loadFailures();
+  }
+
+  /** 健康度原始快照（key = 脚本名） */
+  healthSnapshot() {
+    return this.loader.healthSnapshot();
+  }
+
+  private healthSnapshotMap(): Record<string, any> {
+    const out: Record<string, any> = {};
+    for (const h of this.loader.healthSnapshot()) out[h.name] = h;
+    return out;
+  }
+
+  /** 启用 / 停用音源：移入或移出 _disabled/ */
+  async setSourceEnabled(file: string, enabled: boolean): Promise<{ ok: boolean; error?: string }> {
+    const cfg = loadConfig();
+    const safe = path.basename(file);
+    const live = path.join(cfg.sourcesDir, safe);
+    const dis = path.join(cfg.sourcesDir, '..', '_disabled');
+    try {
+      if (enabled) {
+        const src = path.join(dis, safe);
+        if (!fs.existsSync(src)) return { ok: false, error: '停用区找不到该脚本' };
+        fs.mkdirSync(cfg.sourcesDir, { recursive: true });
+        fs.renameSync(src, live);
+      } else {
+        if (!fs.existsSync(live)) return { ok: false, error: '脚本不存在' };
+        fs.mkdirSync(dis, { recursive: true });
+        fs.renameSync(live, path.join(dis, safe));
+      }
+      await this.reload();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 200) };
+    }
+  }
+
+  /** 删除音源：移入 _trash/（可回收，不做硬删） */
+  async deleteSource(file: string): Promise<{ ok: boolean; error?: string }> {
+    const cfg = loadConfig();
+    const safe = path.basename(file);
+    const candidates = [path.join(cfg.sourcesDir, safe), path.join(cfg.sourcesDir, '..', '_disabled', safe)];
+    const trash = path.join(cfg.sourcesDir, '..', '_trash');
+    try {
+      const hit = candidates.find((c) => fs.existsSync(c));
+      if (!hit) return { ok: false, error: '脚本不存在' };
+      fs.mkdirSync(trash, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      fs.renameSync(hit, path.join(trash, `${stamp}__${safe}`));
+      this.loader.healthTracker.forget(safe);
+      this.loader.healthTracker.persist();
+      await this.reload();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 200) };
+    }
+  }
+
+  /** 写入 / 覆盖音源脚本（须为 .js） */
+  async writeSource(filename: string, content: string): Promise<{ ok: boolean; error?: string }> {
+    const cfg = loadConfig();
+    const safe = path.basename(filename.trim());
+    if (!safe.endsWith('.js')) return { ok: false, error: '只接受 .js 脚本' };
+    if (!content.trim()) return { ok: false, error: '内容为空' };
+    try {
+      fs.mkdirSync(cfg.sourcesDir, { recursive: true });
+      fs.writeFileSync(path.join(cfg.sourcesDir, safe), content, 'utf8');
+      await this.reload();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 200) };
+    }
+  }
+
+  /**
+   * 单源连通性测试：只让这一个脚本去搜一次，返回结果或具体失败原因。
+   * 用于界面上「测一下这个源到底通不通」。
+   */
+  async testSource(file: string, keyword: string): Promise<{
+    ok: boolean; songs?: number; sample?: string; error?: string; ms?: number;
+  }> {
+    const metas = this.loader.listAll();
+    const meta = metas.find((m) => m.file === file || m.name === file);
+    if (!meta) return { ok: false, error: '脚本不在清单里（可能已被删除）' };
+    if (meta.loadState === 'failed') {
+      return { ok: false, error: '脚本加载失败：' + (meta.loadError || '未知原因') };
+    }
+    const t0 = Date.now();
+    try {
+      const songs: Song[] = await this.loader.searchOne(
+        file, meta.platforms[0] ?? 'kw', keyword,
+      );
+      const ms = Date.now() - t0;
+      if (!songs || songs.length === 0) {
+        return { ok: false, error: '脚本已加载，但该关键词未返回结果（源站可能限流或变动）', ms };
+      }
+      return {
+        ok: true, songs: songs.length, ms,
+        sample: `${songs[0].title}${songs[0].artist ? ' - ' + songs[0].artist : ''}`,
+      };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 200), ms: Date.now() - t0 };
+    }
   }
 
   /** 全平台并发搜索 */

@@ -45,6 +45,57 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
 
   // ---------- 音源 ----------
   app.get('/api/sources', async () => ({ count: d.engine.sourceCount, sources: d.engine.listSources() }));
+  // 音源完整清单（含加载失败项与原因）
+  app.get('/api/sources/all', async () => ({
+    count: d.engine.sourceCount,
+    sources: d.engine.listAllSources(),
+    failures: d.engine.loadFailures().length,
+  }));
+
+  // 音源健康度快照
+  app.get('/api/sources/health', async () => ({
+    health: d.engine.healthSnapshot(),
+    failures: d.engine.loadFailures(),
+  }));
+
+  // 启用 / 停用音源（停用即移入 _disabled/）
+  app.post('/api/sources/toggle', async (req) => {
+    const b = (req.body || {}) as any;
+    const file = String(b.file || '');
+    const enabled = b.enabled !== false;
+    if (!file) return { ok: false, error: '缺少 file' };
+    const r = await d.engine.setSourceEnabled(file, enabled);
+    return { ok: r.ok, error: r.error ?? null };
+  });
+
+  // 删除音源（移入 _trash/，可回收）
+  app.post('/api/sources/delete', async (req) => {
+    const b = (req.body || {}) as any;
+    const file = String(b.file || '');
+    if (!file) return { ok: false, error: '缺少 file' };
+    const r = await d.engine.deleteSource(file);
+    return { ok: r.ok, error: r.error ?? null };
+  });
+
+  // 重命名 / 覆盖写入音源脚本
+  app.post('/api/sources/upload', async (req) => {
+    const b = (req.body || {}) as any;
+    const filename = String(b.filename || '').trim();
+    const content = String(b.content || '');
+    if (!filename || !content) return { ok: false, error: '缺少 filename 或 content' };
+    const r = await d.engine.writeSource(filename, content);
+    return { ok: r.ok, error: r.error ?? null };
+  });
+
+  // 单源连通性测试（真打一次搜索，返回结果或具体失败原因）
+  app.post('/api/sources/test', async (req) => {
+    const b = (req.body || {}) as any;
+    const file = String(b.file || '');
+    const keyword = String(b.keyword || '测试');
+    if (!file) return { ok: false, error: '缺少 file' };
+    return d.engine.testSource(file, keyword);
+  });
+
   app.post('/api/sources/reload', async () => {
     await d.engine.reload();
     return { ok: true, count: d.engine.sourceCount };

@@ -22,6 +22,12 @@ export interface SourceMeta {
   sources: Record<string, LxSourceInfo>;
   file: string;
   health: number;
+  /** 加载状态：ok / failed */
+  loadState?: 'ok' | 'failed';
+  /** 加载失败原因 */
+  loadError?: string;
+  /** 加载失败时间 */
+  loadErrorAt?: number;
 }
 
 export class SourceLoader {
@@ -41,7 +47,33 @@ export class SourceLoader {
     return this.scripts.map((s) => ({
       name: s.name, platforms: s.platforms, sources: s.sources, file: s.file,
       health: Math.round(this.health.score(s.name)),
+      loadState: 'ok' as const,
     }));
+  }
+
+  /** 完整清单：含加载失败的脚本（界面必须能看见它们和失败原因） */
+  listAll(): SourceMeta[] {
+    const ok = this.list();
+    const okFiles = new Set(ok.map((s) => s.file));
+    const failed: SourceMeta[] = this.health
+      .snapshot()
+      .filter((h) => h.loadState === 'failed' && !okFiles.has(h.name))
+      .map((h) => ({
+        name: h.name, platforms: [], sources: {}, file: h.name,
+        health: -1,
+        loadState: 'failed' as const,
+        loadError: h.loadError,
+        loadErrorAt: h.loadErrorAt,
+      }));
+    return [...ok, ...failed];
+  }
+
+  /** 加载失败清单（供健康接口聚合） */
+  loadFailures(): { file: string; error: string; at: number }[] {
+    return this.health
+      .snapshot()
+      .filter((h) => h.loadState === 'failed')
+      .map((h) => ({ file: h.name, error: h.loadError ?? '未知原因', at: h.loadErrorAt ?? 0 }));
   }
 
   async loadAll(): Promise<void> {
@@ -53,6 +85,10 @@ export class SourceLoader {
       return;
     }
     const files = fs.readdirSync(this.dir).filter((f) => f.endsWith('.js'));
+    // 目录里已不存在的脚本，清掉其历史记录（避免界面残留幽灵条目）
+    for (const known of this.health.names()) {
+      if (!files.includes(known)) this.health.forget(known);
+    }
     for (const f of files) {
       const full = path.join(this.dir, f);
       try {
@@ -60,12 +96,19 @@ export class SourceLoader {
         const inst = await loadLxScript(full, code);
         if (inst) {
           this.scripts.push(Object.assign(inst, { file: f }));
+          this.health.recordLoaded(f, inst.platforms ?? []);
+        } else {
+          this.health.recordLoadFailure(f, '脚本未返回可用实例（可能缺少 module.exports 或初始化失败）');
+          logger.warn({ file: f }, '音源加载失败：脚本未返回实例');
         }
       } catch (e) {
-        logger.debug({ file: f, err: String(e).slice(0, 120) }, '音源加载失败');
+        const msg = normalizeLoadError(String(e));
+        this.health.recordLoadFailure(f, msg);
+        logger.warn({ file: f, err: msg }, '音源加载失败');
       }
     }
-    logger.info({ count: this.scripts.length, dir: this.dir }, '音源加载完成');
+    this.health.persist();
+    logger.info({ count: this.scripts.length, total: files.length, dir: this.dir }, '音源加载完成');
   }
 
   /** 按平台筛可用脚本，按健康分降序 */
@@ -152,6 +195,19 @@ export class SourceLoader {
   healthSnapshot() {
     return this.health.snapshot();
   }
+
+  /**
+   * 单脚本搜索：只让指定的一个脚本去搜，用于「测一下这个源到底通不通」。
+   * 与 getUrl 的多脚本并行不同，这里失败就是失败，不做兜底。
+   */
+  async searchOne(file: string, platform: string, keyword: string): Promise<Song[]> {
+    const safe = file.split('/').pop() || file;
+    const script = this.scripts.find((s) => s.file === safe || s.name === safe);
+    if (!script) throw new Error('脚本未加载：' + safe);
+    const usePlatform = script.platforms.includes(platform) ? platform : (script.platforms[0] ?? platform);
+    const raw = await script.invoke({ source: usePlatform, action: 'search', info: { keyword } });
+    return normalizeSearchResult(raw);
+  }
 }
 
 /** 从脚本返回里提取直链（兼容多种返回形态） */
@@ -170,4 +226,33 @@ export function extractUrl(raw: unknown): string | null {
     }
   }
   return null;
+}
+
+
+/** 把底层错误转成人能看懂的一句话（界面直接展示） */
+export function normalizeLoadError(raw: string): string {
+  const r = raw.replace(/^Error:\s*/, '').trim();
+  if (/Cannot find module|MODULE_NOT_FOUND/i.test(r)) return '脚本依赖缺失：' + r.slice(0, 160);
+  if (/Unexpected token|SyntaxError/i.test(r)) return '脚本语法错误（可能是压缩/加密脚本与本运行时版本不兼容）';
+  if (/timeout|ETIMEDOUT/i.test(r)) return '脚本初始化超时（可能需联网校验，网络不通）';
+  if (/ENOENT/i.test(r)) return '文件不可读';
+  if (/未初始化|not initialized|缺少 inited/i.test(r)) return '脚本未完成初始化（通常是脚本版本过旧，需更新）';
+  return r.slice(0, 200) || '未知原因';
+}
+
+
+/** 把脚本搜索返回归一化成 Song[]（兼容多种返回形态） */
+export function normalizeSearchResult(raw: unknown): Song[] {
+  const arr = Array.isArray(raw) ? raw : (raw as any)?.data ?? (raw as any)?.list ?? [];
+  if (!Array.isArray(arr)) return [];
+  return arr.map((it: any) => ({
+    platform: String(it?.source ?? it?.platform ?? ''),
+    id: String(it?.songmid ?? it?.id ?? it?._id ?? it?.hash ?? ''),
+    title: String(it?.title ?? it?.name ?? ''),
+    artist: String(it?.artist ?? it?.singer ?? ''),
+    album: it?.album ? String(it.album) : undefined,
+    duration: Number(it?.interval ?? it?.duration ?? 0) || undefined,
+    coverUrl: it?.img ? String(it.img) : undefined,
+    raw: it,
+  })).filter((x) => x.title);
 }

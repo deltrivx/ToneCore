@@ -18,6 +18,14 @@ export interface ScriptHealth {
   lastFailureAt: number;
   /** 连续失败次数（触发熔断） */
   consecutiveFailures: number;
+  /** 加载状态：ok=已加载 / failed=加载失败 */
+  loadState?: 'ok' | 'failed';
+  /** 加载失败原因（供界面直接展示） */
+  loadError?: string;
+  /** 加载失败时间 */
+  loadErrorAt?: number;
+  /** 声明的平台（加载成功时写入） */
+  platforms?: string[];
 }
 
 /**
@@ -84,6 +92,45 @@ export class HealthTracker {
     h.lastFailureAt = Date.now();
     h.consecutiveFailures++;
     this.dirty = true;
+  }
+
+  /** 记录一次加载失败（脚本没起来，界面必须能看到原因） */
+  recordLoadFailure(name: string, err: string) {
+    const h = this.get(name);
+    h.loadState = 'failed';
+    h.loadError = err.slice(0, 300);
+    h.loadErrorAt = Date.now();
+    h.consecutiveFailures = Math.max(h.consecutiveFailures, 0);
+    this.dirty = true;
+  }
+
+  /** 记录一次加载成功 */
+  recordLoaded(name: string, platforms: string[] = []) {
+    const h = this.get(name);
+    h.loadState = 'ok';
+    h.loadError = undefined;
+    h.loadErrorAt = undefined;
+    h.platforms = platforms;
+    this.dirty = true;
+  }
+
+  /** 移除记录（脚本被删除时调用） */
+  forget(name: string) {
+    if (this.map.delete(name)) this.dirty = true;
+  }
+
+  /** 是否加载失败 */
+  isLoadFailed(name: string): boolean {
+    return this.map.get(name)?.loadState === 'failed';
+  }
+
+  has(name: string): boolean {
+    return this.map.has(name);
+  }
+
+  /** 记录在案的脚本名（用于清理已删除文件的历史记录） */
+  names(): string[] {
+    return [...this.map.keys()];
   }
 
   /**
