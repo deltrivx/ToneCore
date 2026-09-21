@@ -178,8 +178,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   // 退出登录
   // 从 SongLoft 导入已登录的小米凭据（跳过小米登录流程）
   app.post('/api/speaker/import', async () => {
-    const r = await import('../services/speaker/index.js').then((m) => m.speaker ?? null).catch(() => null);
-    const svc: any = r || (d.speaker as any);
+    const svc: any = d.speaker;
     if (!svc || typeof svc.importCredentials !== 'function') {
       return { ok: false, error: '当前版本不支持凭据导入' };
     }
