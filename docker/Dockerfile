@@ -1,8 +1,11 @@
 # ---------- Stage 1: 构建前端 ----------
 FROM node:22-alpine AS web-builder
 WORKDIR /app
-COPY package*.json ./
-COPY apps/web/package*.json ./apps/web/
+# 依赖清单单独 COPY，使依赖层缓存只随依赖变化而失效。
+# 版本号在 package.json 里，一旦改版本就会打断这一层 —— 所以发版时
+# **不要改 package.json 的 version**（详见下方 server-builder 的说明）。
+COPY package.json package-lock.json ./
+COPY apps/web/package.json ./apps/web/
 RUN npm ci --workspace=apps/web --include-workspace-root --no-audit --no-fund
 COPY apps/web ./apps/web
 RUN npm run build -w apps/web
@@ -19,8 +22,18 @@ FROM node:22-alpine AS server-builder
 RUN apk add --no-cache python3 make g++ sqlite-dev
 
 WORKDIR /app
-COPY package*.json ./
-COPY apps/server/package*.json ./apps/server/
+# ⚠️ 发版时不要改 package.json / package-lock.json 里的 version 字段。
+#
+# 原因：本层是 `COPY package*.json`，Docker 按**文件内容**算层缓存键。
+# 版本号一改，这层必然失效，紧接着的 `npm ci` 就要在 arm64 的 QEMU 下
+# 把整棵依赖树（含 better-sqlite3 的原生模块）从头装一遍。
+# 实测对比：缓存命中 3 分 38 秒，缓存失效 40 分钟以上。
+#
+# 而镜像里的版本号**根本不由这里决定** —— 它来自构建参数 TONECORE_VERSION
+# （见 Stage 3），运行时由 apps/server/src/version.ts 读取。
+# 所以 package.json 的 version 对镜像只是元信息，改它纯属自伤缓存。
+COPY package.json package-lock.json ./
+COPY apps/server/package.json ./apps/server/
 RUN npm ci --workspace=apps/server --include-workspace-root --no-audit --no-fund
 COPY apps/server ./apps/server
 RUN npm run build -w apps/server
@@ -28,6 +41,7 @@ RUN npm run build -w apps/server
 # 只保留生产依赖（npm workspaces 会提升到根 node_modules）
 ENV NODE_ENV=production
 RUN npm prune --omit=dev --include-workspace-root
+
 
 # 原生模块自检：预编译产物若有问题（缺失/ABI 不符/架构错），
 # 在这里就失败，而不是等容器跑起来在首次查询曲库时崩。

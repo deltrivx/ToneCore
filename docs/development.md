@@ -93,3 +93,30 @@ docker build -f docker/Dockerfile -t tonecore:dev .
 6. 以发布说明为内容创建 GitHub Release
 
 版本号只允许在 `version.ts` 一处定义，`/api/health` 与控制台均从那里取。
+
+### ⚠️ 不要改 `package.json` 的 version
+
+镜像里的版本号来自构建参数 `TONECORE_VERSION`，由 CI 从 git 标签推导后注入，
+**与 `package.json` 的 version 字段无关**。那个字段对容器没有任何影响。
+
+反过来，改它代价很大：`docker/Dockerfile` 的依赖层是
+
+```dockerfile
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+```
+
+Docker 按**文件内容**计算层缓存键。version 一改，这层必然失效，
+后面的 `npm ci` 就要在 arm64 的 QEMU 模拟下把整棵依赖树重装一遍
+（其中包含 `better-sqlite3` 这类原生模块）。
+
+实测对比：
+
+| 依赖层缓存 | 双架构构建耗时 |
+|---|---|
+| 命中 | 约 3 分 40 秒 |
+| 失效 | **40 分钟以上** |
+
+所以发版时只改 `version.ts`，其余三个 manifest 的 version 保持不动即可。
+若确实需要同步（例如为了 `npm pack` 语义），记得同时改
+`package-lock.json` —— 它与清单不一致时 `npm ci` 会报错。
