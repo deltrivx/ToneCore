@@ -9,6 +9,7 @@ import {
   type MinaConfig,
   type MiLoginResult,
 } from './protocol.js';
+import { importFromSongLoft } from './songloft-import.js';
 
 export interface SpeakerDevice {
   id: string;
@@ -104,6 +105,30 @@ export class SpeakerService {
     const c = loadConfig();
     this.cfgPath = path.join(c.dataDir, 'speaker.yaml');
     this.load();
+    this.tryImportFromSongLoft();
+  }
+
+  /**
+   * 首次启动且本地无凭据时，尝试从 SongLoft 导入已登录的小米凭据。
+   * 自行登录小米需要精确复刻签名，风控下易踩 code=10001；
+   * 复用 SongLoft 的登录态最稳。导入成功后立即拉设备并启动监听。
+   */
+  private tryImportFromSongLoft() {
+    if (this.cfg.serviceToken && this.cfg.ssecurity && this.cfg.userId) return;
+    const cred = importFromSongLoft(process.env.SONGLOFT_DATA_DIR || '/songloft_data');
+    if (!cred) return;
+    this.cfg = {
+      ...this.cfg,
+      username: this.cfg.username || cred.username,
+      userId: cred.userId,
+      serviceToken: cred.serviceToken,
+      ssecurity: cred.ssecurity,
+      tokenExpiresAt: cred.expiresAt,
+      deviceIds: this.cfg.deviceIds.length ? this.cfg.deviceIds : cred.deviceIds,
+    };
+    this.persist();
+    void this.refreshDevices().catch(() => undefined);
+    if (this.cfg.monitorEnabled) this.startMonitor();
   }
 
   private load() {

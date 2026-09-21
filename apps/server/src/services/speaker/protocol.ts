@@ -109,8 +109,24 @@ export interface MiLoginCredentials {
 }
 
 const MINA_LOGIN_BASE = "https://account.xiaomi.com";
+/**
+ * 小米账号接口的 UA。
+ *
+ * 踩坑记录：UA 若不被识别为小米自家客户端，authStart 会直接返回 HTML 登录页
+ * 而不是 JSON，导致拿不到 _sign（登录上下文），后续 serviceLoginAuth2 稳定报
+ * code=10001「系统错误」。必须用带 MICO 标识的 App UA。
+ */
 const MI_LOGIN_UA =
   "MiHome/6.0.103 (com.xiaomi.mihome; build:6.0.103.1; iOS 14.4.0) Alamofire/6.0.103 MICO/iOSApp/appStore/6.0.103";
+
+/** authStart 需要 JSON 响应，显式声明 Accept，避免被重定向到网页登录页 */
+const MI_LOGIN_HEADERS: Record<string, string> = {
+  "User-Agent": MI_LOGIN_UA,
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "zh-CN,zh;q=0.9",
+  "X-Requested-With": "XMLHttpRequest",
+  "Referer": "https://account.xiaomi.com/",
+};
 
 /** 小米登录响应里带 &&&START&&& 前缀，需剥掉后再解析 JSON */
 function parseMiLoginBody(text: string): any {
@@ -143,10 +159,7 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
       `${MINA_LOGIN_BASE}/fe/service/identity/authStart?sid=micoapi&_locale=zh_CN&_json=true`,
       {
         method: "GET",
-        headers: {
-          "User-Agent": MI_LOGIN_UA,
-          "Accept": "application/json, text/plain, */*",
-        },
+        headers: MI_LOGIN_HEADERS,
       },
     );
     const startBody = parseMiLoginBody(await startRes.text());
