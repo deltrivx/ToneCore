@@ -26,9 +26,9 @@
           Description="ToneCore 控制台端口" Type="Port" Display="always"
           Required="true" Mask="false">8090</Config>
 
-  <Config Name="音乐库目录" Target="/music" Default="/mnt/user/music" Mode="rw"
-          Description="你的音乐库路径（可与其他音乐应用共享）" Type="Path" Display="always"
-          Required="true" Mask="false">/mnt/user/music</Config>
+  <Config Name="音乐库目录" Target="/music" Default="/mnt/remotes/FnOS/Music" Mode="rw"
+          Description="音乐库根目录。下载完成的歌曲按「歌手/专辑」分层落盘于此，同时作为本地曲库扫描源。" Type="Path" Display="always"
+          Required="true" Mask="false">/mnt/remotes/FnOS/Music</Config>
 
   <Config Name="数据目录" Target="/data" Default="/mnt/user/appdata/ToneCore" Mode="rw"
           Description="配置、数据库、音源脚本存放处" Type="Path" Display="always"
