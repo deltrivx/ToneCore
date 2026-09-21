@@ -140,7 +140,7 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
   let sign = "";
   try {
     const startRes = await fetch(
-      `${MINA_LOGIN_BASE}/fe/service/identity/authStart?sid=micoapi&_locale=zh_CN&_json=true`,
+      `${MINA_LOGIN_BASE}/fe/service/identity/authStart?sid=micoapi&_locale=zh_CN`,
       {
         method: "GET",
         headers: {
@@ -155,12 +155,11 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
     logger.debug({ err: String(e) }, "authStart 获取登录上下文失败，继续尝试无 sign 登录");
   }
 
+  // 实测：serviceParam / qs 同时存在会让小米返回 code=10001「系统错误」。
+  // 只保留必需字段最稳（2026-09-21 参数二分法实测）。
   const params = new URLSearchParams({
     _json: "true",
-    qs: "%3Fsid%3Dmicoapi",
     sid: "micoapi",
-    serviceParam:
-      "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
     user: c.username,
     // 小米要求密码为 MD5 大写，传明文会稳定返回 70016
     hash: crypto.createHash("md5").update(c.password).digest("hex").toUpperCase(),
