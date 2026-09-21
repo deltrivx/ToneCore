@@ -163,6 +163,15 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     return { ok: r.ok, error: r.error ?? null, status: d.speaker.status };
   });
 
+  // 重新发送验证码（服务端代为请求小米验证页触发发码）
+  app.post('/api/speaker/sendcode', async (req) => {
+    const b = (req.body || {}) as { notificationUrl?: string };
+    const url = String(b.notificationUrl || '').trim();
+    if (!url) return { ok: false, error: '缺少验证链接，请重新登录' };
+    const r = await d.speaker.sendCode(url);
+    return { ok: r.ok, error: r.error ?? null };
+  });
+
   // 退出登录
   app.post('/api/speaker/logout', async () => {
     d.speaker.logout();

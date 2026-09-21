@@ -123,6 +123,9 @@ export interface MiLoginResult {
   ok: boolean;
   /** 需要短信 / 邮箱验证码时返回，配合 verifyMiLogin 完成 */
   needVerify?: { notificationUrl?: string; _sign?: string };
+  /** 验证码是否已自动发送成功 */
+  ticketSent?: boolean;
+  ticketError?: string | null;
   /** 登录成功后可直接构造 MinaConfig */
   mina?: MinaConfig;
   /** 失败原因（用于前端展示） */
@@ -240,6 +243,38 @@ export function describeLoginCode(code: number, desc: string): string {
 }
 
 /** 步骤二：提交短信 / 邮箱验证码完成登录 */
+/**
+ * 触发小米发送短信 / 邮箱验证码。
+ *
+ * 背景：serviceLoginAuth2 返回 need_verify 只表示「需要验证」，
+ * 短信并不会自动发出。必须访问 notificationUrl（authStart 页面）
+ * 才会真正触发发码 —— 那个页面是小米的 React SPA，发码动作在 JS 里。
+ *
+ * 服务端代为请求一次，用户无需手动跳转打开网页。
+ */
+export async function sendVerifyTicket(notificationUrl: string): Promise<{ ok: boolean; error?: string }> {
+  if (!notificationUrl) return { ok: false, error: "缺少验证链接" };
+  try {
+    const res = await fetch(notificationUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent": MI_LOGIN_UA,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+      },
+      redirect: "follow",
+    });
+    // 页面本身只要成功返回即视为已触发发码（小米不返回结构化结果）
+    if (!res.ok) return { ok: false, error: `验证码发送失败（HTTP ${res.status}）` };
+    await res.text();
+    logger.info("已请求小米验证页，触发发送验证码");
+    return { ok: true };
+  } catch (e) {
+    logger.warn({ err: String(e) }, "请求小米验证页失败");
+    return { ok: false, error: "验证码发送请求失败，请重试" };
+  }
+}
+
 export async function verifyMiLogin(
   c: MiLoginCredentials,
   code: string,

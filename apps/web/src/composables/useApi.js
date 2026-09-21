@@ -33,6 +33,7 @@ export const api = {
   speaker:        () => req('/api/speaker'),
   speakerLogin:   (username, password) => req('/api/speaker/login', { method: 'POST', body: { username, password } }),
   speakerVerify:  (b) => req('/api/speaker/verify', { method: 'POST', body: b }),
+  speakerSendCode: (url) => req('/api/speaker/sendcode', { method: 'POST', body: { notificationUrl: url } }),
   speakerLogout:  () => req('/api/speaker/logout', { method: 'POST' }),
   saveSpeaker:    (c) => req('/api/speaker/config', { method: 'POST', body: c }),
   speakerDevices: () => req('/api/speaker/devices', { method: 'POST' }),

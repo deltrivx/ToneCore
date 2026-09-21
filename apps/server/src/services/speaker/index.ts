@@ -4,7 +4,7 @@ import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 import {
   fetchConversations, fetchDevices, playUrl, tts,
-  loginMiAccount, verifyMiLogin,
+  loginMiAccount, verifyMiLogin, sendVerifyTicket,
   type MinaConfig,
   type MiLoginResult,
 } from './protocol.js';
@@ -166,11 +166,21 @@ export class SpeakerService {
       return r;
     }
     if (r.needVerify) {
-      logger.info({ account: maskAccount(username) }, '音箱登录需要验证码');
-      return r;
+      // 自动触发发码：need_verify 只表示需要验证，短信需请求验证页才会发出
+      const sent = await sendVerifyTicket(String(r.needVerify.notificationUrl ?? ''));
+      logger.info(
+        { account: maskAccount(username), sent: sent.ok },
+        sent.ok ? '音箱登录需要验证码（已自动触发发码）' : '音箱登录需要验证码（发码请求失败）',
+      );
+      return { ...r, ticketSent: sent.ok, ticketError: sent.ok ? null : sent.error };
     }
     logger.warn({ err: r.error }, '音箱账号登录失败');
     return r;
+  }
+
+  /** 重新发送验证码（用户点「重新发送」时调用） */
+  async sendCode(notificationUrl: string): Promise<{ ok: boolean; error?: string }> {
+    return sendVerifyTicket(notificationUrl);
   }
 
   /** 提交短信 / 邮箱验证码完成登录 */
