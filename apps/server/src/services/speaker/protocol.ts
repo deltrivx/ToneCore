@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { logger } from '../../logger.js';
+import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 /**
  * 小爱音箱协议层（MiIO + Mina）。
@@ -347,99 +349,192 @@ function minaSignature(path: string, method: string, nonce: string, ssecurity: s
 }
 
 /** Mina 请求封装 */
+/**
+ * ─────────────────────────────────────────────────────────────
+ *  底层请求：改为走 SongLoft 的 miot 插件接口
+ * ─────────────────────────────────────────────────────────────
+ *
+ * 背景：小米 /app 接口（api.io.mi.com）的签名协议复杂且易错，
+ * 自研实现多次遇到 auth error。SongLoft 已完整实现该协议并稳定运行，
+ * 故 ToneCore 复用其接口，避免重复踩坑。
+ *
+ * 认证：SongLoft 的 access token
+ *   ① 优先从 sqlite 读现成 token（稳定，不依赖登录接口）
+ *   ② 兜底调 /api/v1/auth/login 登录
+ */
+
+/** SongLoft 服务地址 */
+const SL_BASE = process.env.SONGLOFT_BASE || 'http://192.168.31.2:58091';
+/** SongLoft 数据目录（用于直读 token） */
+const SL_DATA_DIR = process.env.SONGLOFT_DATA || '/songloft_data';
+
+let cachedToken: string | null = null;
+let cachedAt = 0;
+const TOKEN_TTL = 6 * 3600 * 1000; // 6 小时
+
+/** 从 SongLoft sqlite 读有效 token */
+function readTokenFromDb(): string | null {
+  try {
+    const dbPath = `${SL_DATA_DIR}/songloft.db`;
+    if (!fs.existsSync(dbPath)) return null;
+    const out = execFileSync('sqlite3', [
+      dbPath,
+      "SELECT token_id FROM auth_tokens WHERE (revoked_at IS NULL OR revoked_at='') " +
+      "AND expires_at > datetime('now') AND token_type='access' ORDER BY id DESC LIMIT 1;",
+    ], { encoding: 'utf8', timeout: 5000 }).trim();
+    return out || null;
+  } catch (e) {
+    logger.debug({ err: String(e) }, '读 SongLoft token 失败');
+    return null;
+  }
+}
+
+/** 兜底：登录 SongLoft 拿 token */
+async function loginSongLoft(): Promise<string | null> {
+  const user = process.env.SONGLOFT_USER || '';
+  const pass = process.env.SONGLOFT_PASS || '';
+  if (!user || !pass) return null;
+  try {
+    const res = await fetch(`${SL_BASE}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass }),
+    });
+    const j: any = await res.json();
+    return j?.access_token || null;
+  } catch (e) {
+    logger.warn({ err: String(e) }, '登录 SongLoft 失败');
+    return null;
+  }
+}
+
+/** 获取有效 token（带缓存） */
+async function getToken(): Promise<string | null> {
+  if (cachedToken && Date.now() - cachedAt < TOKEN_TTL) return cachedToken;
+  let t = readTokenFromDb();
+  if (!t) t = await loginSongLoft();
+  if (t) { cachedToken = t; cachedAt = Date.now(); }
+  return t;
+}
+
+/** 调 SongLoft miot 接口 */
+async function slRequest(
+  path: string,
+  opts: { method?: string; body?: unknown } = {},
+): Promise<any> {
+  const token = await getToken();
+  if (!token) return { error: '无法获取 SongLoft token' };
+
+  const url = `${SL_BASE}/api/v1/jsplugin/miot${path}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: opts.method || 'GET',
+      headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const text = await res.text();
+    // 401 时清缓存重试一次
+    if (res.status === 401) {
+      cachedToken = null;
+      const t2 = await getToken();
+      if (t2) {
+        const res2 = await fetch(url, {
+          method: opts.method || 'GET',
+          headers: { ...headers, Authorization: `Bearer ${t2}` },
+          body: opts.body ? JSON.stringify(opts.body) : undefined,
+        });
+        const t2text = await res2.text();
+        try { return JSON.parse(t2text); } catch { return { raw: t2text }; }
+      }
+    }
+    try { return JSON.parse(text); } catch { return { raw: text }; }
+  } catch (e) {
+    logger.warn({ err: String(e), path }, 'SongLoft 请求失败');
+    return { error: String(e) };
+  }
+}
+
+/**
+ * 兼容层：保留原签名，内部改走 SongLoft。
+ * 旧的自研协议实现已停用（认证不可用）。
+ */
 export async function minaRequest(
   cfg: MinaConfig,
   path: string,
   opts: { method?: string; body?: unknown; query?: Record<string, string> } = {},
 ): Promise<any> {
-  const method = opts.method || 'GET';
-  const nonce = crypto.randomBytes(8).toString('base64');
-  const url = new URL(MINA_BASE + path);
-  if (opts.query) for (const [k, v] of Object.entries(opts.query)) url.searchParams.set(k, v);
-
-  const headers: Record<string, string> = {
-    'User-Agent': MINA_USER_AGENT,
-    'Content-Type': 'application/x-www-form-urlencoded',
-    Cookie: `userId=${cfg.userId}; serviceToken=${cfg.serviceToken}`,
-    'x-xiaomi-protocal-flag-cli': 'PROTOCAL_CONTENT_JSON',
-  };
-
-  const res = await fetch(url.toString(), {
-    method,
-    headers,
-    body: opts.body ? new URLSearchParams(opts.body as any).toString() : undefined,
-  });
-
-  const text = await res.text();
-  try { return JSON.parse(text); } catch { return { raw: text, status: res.status }; }
+  // path 形如 /admin/v2/device_list、/remote/ubus —— 旧协议路径，此处不再使用
+  logger.debug({ path }, 'minaRequest 已由 SongLoft 接口替代');
+  return slRequest(path, opts);
 }
 
-/** 拉取音箱最近对话记录（语音点歌的关键入口） */
+/** 拉取音箱最近对话记录（语音点歌入口） */
 export async function fetchConversations(
   cfg: MinaConfig,
   deviceId: string,
   limit = 5,
   timestamp = 0,
 ): Promise<any[]> {
-  const r = await minaRequest(cfg, '/admin/v2/conversation', {
-    query: {
-      deviceId,
-      limit: String(limit),
-      timestamp: String(timestamp),
-      userId: cfg.userId,
-    },
-  });
-  const items = r?.data?.records || r?.data || [];
+  const r = await slRequest(
+    `/conversation/messages?account_id=${encodeURIComponent(cfg.userId)}` +
+    `&device_id=${encodeURIComponent(deviceId)}&limit=${limit}`,
+  );
+  const items = r?.data?.records || r?.data || r?.messages || [];
   return Array.isArray(items) ? items : [];
 }
 
-/** 让音箱播放指定 URL（TTS + 指令） */
+/** 让音箱播放指定 URL */
 export async function playUrl(
   cfg: MinaConfig,
   deviceId: string,
   url: string,
 ): Promise<boolean> {
-  // 原理：给音箱下发"播放音乐"指令，携带 audio url
-  const body = {
-    deviceId,
-    url: url,
-    type: 1,
-    timestamp: Date.now(),
-  };
-  const r = await minaRequest(cfg, '/remote/ubus', {
+  const r = await slRequest('/mina/play-url', {
     method: 'POST',
-    body: {
-      deviceId,
-      method: 'player_play_url',
-      path: 'mediaplayer',
-      message: JSON.stringify({ url, type: 1 }),
-      requestId: `tc_${Date.now()}`,
-    },
+    body: { account_id: cfg.userId, device_id: deviceId, url },
   });
-  const ok = r?.code === 0 || r?.message === 'success';
-  if (!ok) logger.debug({ deviceId, resp: JSON.stringify(r).slice(0, 200) }, 'playUrl 返回非成功');
+  const ok = r?.success === true;
+  logger.info({ deviceId, ok, err: r?.error }, '推送播放（SongLoft）');
   return ok;
 }
 
-/** 文本转语音并播报（用于点歌失败的提示） */
+/** 文本转语音并播报 */
 export async function tts(cfg: MinaConfig, deviceId: string, text: string): Promise<boolean> {
-  const r = await minaRequest(cfg, '/remote/ubus', {
+  const r = await slRequest('/mina/tts', {
     method: 'POST',
-    body: {
-      deviceId,
-      method: 'text_to_speech',
-      path: 'mibrain',
-      message: JSON.stringify({ text }),
-      requestId: `tc_tts_${Date.now()}`,
-    },
+    body: { account_id: cfg.userId, device_id: deviceId, text },
   });
-  return r?.code === 0;
+  return r?.success === true;
 }
 
 /** 拉取账号下绑定的设备列表 */
 export async function fetchDevices(cfg: MinaConfig): Promise<any[]> {
-  const r = await minaRequest(cfg, '/admin/v2/device_list', {
-    query: { master: '0', userId: cfg.userId },
-  });
-  return r?.data || [];
+  const r = await slRequest('/mina/devices');
+  const data = r?.data;
+  if (!Array.isArray(data)) return [];
+  // 摊平多账号结构，取目标账号的设备
+  for (const acc of data) {
+    if (String(acc.account_id) === String(cfg.userId)) {
+      return (acc.devices || []).map((d: any) => ({
+        deviceID: d.deviceID,
+        name: d.name || d.alias,
+        presence: d.presence,
+        hardware: d.hardware,
+        miotDID: d.miotDID,
+      }));
+    }
+  }
+  // 找不到指定账号时返回第一个账号的设备
+  return (data[0]?.devices || []).map((d: any) => ({
+    deviceID: d.deviceID,
+    name: d.name || d.alias,
+    presence: d.presence,
+    hardware: d.hardware,
+    miotDID: d.miotDID,
+  }));
 }
