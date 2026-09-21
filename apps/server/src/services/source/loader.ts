@@ -197,16 +197,31 @@ export class SourceLoader {
   }
 
   /**
-   * 单脚本搜索：只让指定的一个脚本去搜，用于「测一下这个源到底通不通」。
-   * 与 getUrl 的多脚本并行不同，这里失败就是失败，不做兜底。
+   * 单脚本取链：只让指定的一个脚本去取，失败就是失败，不做多源兜底。
+   * 用于「测一下这个源到底通不通」。
+   *
+   * 注意只让它取链（musicUrl），**不要传 search** ——
+   * 洛雪脚本不实现 search，传过去必然抛
+   * `action not support: search` 然后挂到运行时超时。
    */
-  async searchOne(file: string, platform: string, keyword: string): Promise<Song[]> {
+  async getUrlFromScript(file: string, song: Song, quality: string): Promise<SongUrl | null> {
     const safe = file.split('/').pop() || file;
     const script = this.scripts.find((s) => s.file === safe || s.name === safe);
     if (!script) throw new Error('脚本未加载：' + safe);
-    const usePlatform = script.platforms.includes(platform) ? platform : (script.platforms[0] ?? platform);
-    const raw = await script.invoke({ source: usePlatform, action: 'search', info: { keyword } });
-    return normalizeSearchResult(raw);
+
+    // 该脚本不一定支持这首歌的平台，挑一个它支持的
+    const platform = script.platforms.includes(song.platform)
+      ? song.platform
+      : (script.platforms[0] ?? song.platform);
+
+    const raw = await script.invoke({
+      source: platform,
+      action: 'musicUrl',
+      info: { musicInfo: song.raw ?? song, type: quality },
+    });
+    const url = extractUrl(raw);
+    if (!url) return null;
+    return { url, quality, source: script.name };
   }
 }
 

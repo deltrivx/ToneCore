@@ -203,6 +203,8 @@ export function loadLxScript(filePath: string, code: string): Promise<LxScriptIn
     let alertHandler: ((msg: string) => void) | null = null;
     let disposed = false;
     const pending = new Map<string, PendingTask>();
+    /** 脚本异步阶段（init 期间的 fetch 等）冒出来的异常，用于归因「为什么没 init 成功」 */
+    const asyncErrors: string[] = [];
 
     const onSend = (event: string, data: unknown) => {
       if (event === 'inited') {
@@ -304,11 +306,32 @@ export function loadLxScript(filePath: string, code: string): Promise<LxScriptIn
       return;
     }
 
+    // 关键：给脚本的异步阶段（它自己排的微任务/宏任务）套一层保护。
+    // 脚本在 init 期间发起的 fetch 等异步操作若 reject，会以未捕获拒绝的形式
+    // 冒到宿主；这里用一次性监听把它转成本脚本的加载失败，而不是全局噪音。
+    const onAsyncError = (reason: unknown) => {
+      const msg = String((reason as any)?.message ?? reason).slice(0, 160);
+      // 只认「与本脚本无关也说不清」的场景：记下来，若最终没 init 成功就归因给它
+      asyncErrors.push(msg);
+    };
+    process.on('unhandledRejection', onAsyncError);
+    process.on('uncaughtException', onAsyncError);
+
     // 等 inited（脚本可能异步 init）
     const finish = () => {
+      process.off('unhandledRejection', onAsyncError);
+      process.off('uncaughtException', onAsyncError);
       if (disposed) return;
       if (!inited) {
-        logger.debug({ file: filePath }, '脚本未上报 inited，跳过');
+        // 把异步阶段的报错一并带出去 —— 否则用户只看到「脚本未返回实例」，
+        // 不知道真因是脚本内部抛异常（野花/野草就是这一类）。
+        if (asyncErrors.length > 0) {
+          logger.warn({
+            file: filePath, asyncErrors: asyncErrors.slice(0, 3),
+          }, '脚本加载失败：异步阶段抛出异常');
+        } else {
+          logger.debug({ file: filePath }, '脚本未上报 inited，跳过');
+        }
         resolve(null);
         return;
       }

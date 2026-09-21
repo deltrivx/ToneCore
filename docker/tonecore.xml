@@ -9,7 +9,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/deltrivx/ToneCore/issues</Support>
   <Project>https://github.com/deltrivx/ToneCore</Project>
-  <Overview>一体化音乐中枢 · 音源搜索 / 无损落库 / 自动刮削 / 小爱音箱接入&#13;&#13;让小爱音箱想听什么就听什么，并且听完自动进你的本地曲库。&#13;&#13;核心能力：&#13;· 设备接入：小爱音箱语音点歌，对话轮询 + 意图解析&#13;· 播放控制：上一首 / 下一首 / 暂停 / 继续 / 停止，音量绝对与相对调节&#13;· 音源引擎：多平台并发搜歌，自动打分选源、失败降级&#13;· 无损落库：点播自动下载 FLAC/320K，按 歌手/专辑/歌名 归档&#13;· 自动刮削：嵌入 ID3/FLAC 标签、封面、歌词&#13;· 本地曲库：SQLite 索引，检索 / 分页 / 试听 / 统计&#13;· 极简控制台：深色科技风，PC / 移动双端适配</Overview>
+  <Overview>一体化音乐中枢 · 内置播放器 / 音源搜索 / 无损落库 / 自动刮削 / 小爱音箱接入&#13;&#13;既能推给小爱音箱点歌，也能直接在浏览器里听，听完自动进你的本地曲库。&#13;&#13;核心能力：&#13;· 内置播放器：播放队列、上一首 / 下一首、进度拖动、音量、列表 / 单曲 / 随机循环&#13;· 歌词与封面：LRC 滚动歌词 + 专辑封面，本地内嵌与在线双来源&#13;· 设备接入：小爱音箱语音点歌，对话轮询 + 意图解析&#13;· 播放控制：暂停 / 继续 / 停止，音量绝对与相对调节&#13;· 音源引擎：多平台并发搜歌，自动打分选源、失败降级&#13;· 无损落库：点播自动下载 FLAC/320K，按 歌手/专辑/歌名 归档&#13;· 自动刮削：嵌入 ID3/FLAC 标签、封面、歌词&#13;· 本地曲库：SQLite 索引，检索 / 分页 / 试听 / 统计&#13;· 侧边栏控制台：深色科技风，桌面常驻 / 移动抽屉，双端适配</Overview>
   <Category>MediaApp:Music MediaServer:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/deltrivx/ToneCore/main/docker/tonecore.xml</TemplateURL>
@@ -66,9 +66,9 @@
           Description="可用变量：{artist} {album} {title}" Type="Variable" Display="advanced"
           Required="false" Mask="false">{artist}/{album}/{title}</Config>
 
-  <Config Name="平台优先级" Target="PLATFORMS" Default="kw,kg,tx,wy,mg" Mode=""
-          Description="逗号分隔，越靠前越优先。kw=酷我 kg=酷狗 tx=QQ wy=网易 mg=咪咕" Type="Variable" Display="advanced"
-          Required="false" Mask="false">kw,kg,tx,wy,mg</Config>
+  <Config Name="平台优先级" Target="PLATFORMS" Default="kw,tx,wy" Mode=""
+          Description="逗号分隔，越靠前越优先。kw=酷我 tx=QQ wy=网易（咪咕与酷狗因上游接口失效已下线）" Type="Variable" Display="advanced"
+          Required="false" Mask="false">kw,tx,wy</Config>
 
   <Config Name="日志级别" Target="LOG_LEVEL" Default="info" Mode=""
           Description="trace / debug / info / warn / error" Type="Variable" Display="advanced"

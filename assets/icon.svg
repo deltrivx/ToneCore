@@ -1,23 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!--
     ToneCore 图标 · 圆角方底 · 音符 + 声波
-    主蓝 #185FA5 / 音符白 #FFFFFF / 声波琥珀 #EF9F27
+    亮色版：天蓝渐变底 #2E9BE8 → #4FC3F7 / 音符纯白 / 声波亮琥珀 #FFC13B
+
+    配色口径（亮色化）：
+      旧版 #185FA5 是深靛蓝，在深色列表背景上发闷、辨识度低。
+      新版改为高明度天蓝纵向渐变，主色亮度提升约 2 倍，
+      在浅底与深底上都有足够对比。声波由 #EF9F27 提亮到 #FFC13B。
 
     构图口径：白色音符 + 琥珀声波的联合包围盒必须居中于画布。
-    音符主体 y:320~724（中心 522）；声波 y:448~576（中心 512）。
-    把音符整体下移 0，声波上移到与音符视觉重心一致，
-    并把音符略微放大以填满安全区，减少底部空蓝。
   -->
 
-  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="#185FA5"/>
+  <defs>
+    <!-- 纵向天蓝渐变：上浅下深，避免纯平色显得呆板 -->
+    <linearGradient id="tcBase" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#4FC3F7"/>
+      <stop offset="55%"  stop-color="#2E9BE8"/>
+      <stop offset="100%" stop-color="#1E7FD0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#tcBase)"/>
 
   <!-- 声波：居中对齐音符的垂直重心（中心 512），并贴近音符两侧 -->
   <path d="M 288 442 A 152 152 0 0 0 288 582"
-        fill="none" stroke="#EF9F27" stroke-width="56" stroke-linecap="round"/>
+        fill="none" stroke="#FFC13B" stroke-width="56" stroke-linecap="round"/>
   <path d="M 736 442 A 152 152 0 0 1 736 582"
-        fill="none" stroke="#EF9F27" stroke-width="56" stroke-linecap="round"/>
+        fill="none" stroke="#FFC13B" stroke-width="56" stroke-linecap="round"/>
 
-  <!-- 音符：放大并居中。白色包围盒目标 x:326~700 → 已归中，再整体略放大 -->
+  <!-- 音符 -->
   <g transform="translate(512 512) scale(1.06) translate(-512 -512) translate(-37 0)">
     <ellipse cx="470" cy="640" rx="110" ry="82"
              fill="#FFFFFF" transform="rotate(-20 470 640)"/>

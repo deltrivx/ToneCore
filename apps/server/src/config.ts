@@ -25,7 +25,7 @@ export interface ToneCoreCfg {
   downloadConcurrency: number;
   /** 两个下载之间的间隔(ms) */
   downloadIntervalMs: number;
-  /** 平台优先级 */
+  /** 平台优先级（只放实际可用的平台；mg/kg 已因上游改版下线） */
   platforms: string[];
   /** 音源脚本目录 */
   sourcesDir: string;
@@ -44,7 +44,10 @@ const DEFAULTS: ToneCoreCfg = {
   writeLyrics: true,
   downloadConcurrency: 1,
   downloadIntervalMs: 3000,
-  platforms: ['kw', 'kg', 'tx', 'wy', 'mg'],
+  // 平台顺序即偏好顺序。实测各平台搜索质量差异很大：
+  //   tx / wy 有原唱且排序靠前；kw 原唱常缺失（搜「稻香」连周杰伦都没有）。
+  // 因此把 tx / wy 放前面，kw 靠后作为兜底。
+  platforms: ['tx', 'wy', 'kw'],
   sourcesDir: '',
   logLevel: 'info',
 };

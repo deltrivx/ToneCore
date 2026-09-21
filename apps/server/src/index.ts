@@ -11,6 +11,8 @@ import { Library } from './services/library/index.js';
 import { Scraper } from './services/scraper/index.js';
 import { SpeakerService } from './services/speaker/index.js';
 import { Orchestrator } from './services/orchestrator.js';
+import { PlayerService } from './services/player/index.js';
+import { LyricsService } from './services/player/lyrics.js';
 import { registerRoutes } from './routes/index.js';
 
 /** 探测本机对外 IPv4（用于生成推给音箱的绝对地址） */
@@ -44,6 +46,8 @@ async function main() {
   const scraper = new Scraper();
   const speaker = new SpeakerService();
   const orchestrator = new Orchestrator(engine, downloader, lib);
+  const player = new PlayerService(engine, lib);
+  const lyrics = new LyricsService();
 
   // 下载完成后的标签/封面/歌词补齐
   downloader.attachScraper(scraper);
@@ -52,11 +56,11 @@ async function main() {
   const publicBase = () => process.env.PUBLIC_BASE || `http://${lanIP.split('//')[1].split(':')[0]}:${cfg.port}`;
 
   await engine.reload();
-  const scan = lib.scan();
+  const scan = await lib.scan();
   logger.info({ sources: engine.sourceCount, songs: scan.total, publicBase: publicBase() }, '初始化完成');
 
   const app = Fastify({ logger: false, bodyLimit: 10 * 1024 * 1024 });
-  await registerRoutes(app, { engine, downloader, lib, scraper, speaker, orchestrator, publicBase });
+  await registerRoutes(app, { engine, downloader, lib, scraper, speaker, orchestrator, player, lyrics, publicBase });
 
   const webDir = path.resolve(process.cwd(), 'public');
   if (fs.existsSync(webDir)) {

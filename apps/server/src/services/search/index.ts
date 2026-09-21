@@ -4,8 +4,6 @@ import type { Song } from '../source/types.js';
 import { searchKw } from './platforms/kw.js';
 import { searchTx } from './platforms/tx.js';
 import { searchWy } from './platforms/wy.js';
-import { searchMg } from './platforms/mg.js';
-import { searchKg } from './platforms/kg.js';
 
 export type SearchFn = (keyword: string, page: number, limit: number) => Promise<Song[]>;
 
@@ -14,13 +12,22 @@ export type SearchFn = (keyword: string, page: number, limit: number) => Promise
  *
  * 为什么自研：洛雪音源脚本只提供「取直链」能力（action=musicUrl），
  * 搜索必须由宿主实现 —— 这也是 LXServer / lxmusic 等项目的通行做法。
+ *
+ * 已下线平台（实测 2026-09-22）：
+ *   ❌ mg（咪咕）：music.migu.cn/v3/api/search/song 已改版，返回 HTML 而非 JSON
+ *   ❌ kg（酷狗）：mobilecdn.kugou.com 证书校验失败，无法建连
+ * 两者保留实现文件但不再注册；待上游恢复可按需重新挂上。
  */
 const PLATFORM_SEARCH: Record<string, SearchFn> = {
   kw: searchKw,
   tx: searchTx,
   wy: searchWy,
-  mg: searchMg,
-  kg: searchKg,
+};
+
+/** 已下线但保留代码的平台（界面据此说明「为什么看不到」） */
+export const RETIRED_PLATFORMS: Record<string, string> = {
+  mg: '咪咕搜索接口已改版（返回 HTML 而非 JSON）',
+  kg: '酷狗搜索接口 SSL 证书校验失败',
 };
 
 export class SearchEngine {

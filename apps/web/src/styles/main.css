@@ -59,6 +59,68 @@
            hover:bg-ink-700 hover:text-neon-soft transition-colors
            disabled:opacity-40 disabled:cursor-not-allowed;
   }
+
+  /* ---------- 侧边栏导航 ---------- */
+  .tc-nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+           text-slate-400 transition-colors cursor-pointer select-none;
+  }
+  .tc-nav-item:hover { @apply bg-ink-800/70 text-slate-200; }
+  .tc-nav-item-active {
+    @apply bg-ink-800 text-neon-soft;
+  }
+  /* 选中项左侧高亮条 */
+  .tc-nav-item-active::before {
+    content: '';
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-neon;
+  }
+
+  /* ---------- 迷你播放条 / 播放器 ---------- */
+  .tc-mini {
+    @apply h-[72px] shrink-0 border-t border-ink-700 bg-ink-850/95 backdrop-blur
+           flex items-center gap-3 px-3;
+  }
+  /* 进度条：用原生 range 改样式，跨端一致 */
+  .tc-range {
+    @apply appearance-none bg-transparent cursor-pointer w-full h-1;
+  }
+  .tc-range::-webkit-slider-runnable-track {
+    @apply h-1 rounded-full bg-ink-600;
+  }
+  .tc-range::-webkit-slider-thumb {
+    @apply appearance-none w-3 h-3 rounded-full bg-neon -mt-1 transition-transform;
+    box-shadow: 0 0 8px rgba(79, 195, 247, 0.6);
+  }
+  .tc-range:hover::-webkit-slider-thumb { @apply scale-125; }
+  .tc-range::-moz-range-track { @apply h-1 rounded-full bg-ink-600; }
+  .tc-range::-moz-range-thumb {
+    @apply w-3 h-3 rounded-full bg-neon border-0;
+  }
+
+  /* 歌词行：当前行高亮，其余渐隐 */
+  .tc-lyric-line {
+    @apply py-1.5 text-center transition-all duration-300 leading-relaxed;
+  }
+  .tc-lyric-active {
+    @apply text-neon-soft text-lg font-medium;
+  }
+  .tc-lyric-idle {
+    @apply text-slate-600 text-sm;
+  }
+
+  /* 播放中的跳动条动画 */
+  .tc-bars { @apply flex items-end gap-[2px] h-3; }
+  .tc-bars > i {
+    @apply block w-[2px] bg-neon rounded-full;
+    animation: tc-bar 1s ease-in-out infinite;
+  }
+  .tc-bars > i:nth-child(2) { animation-delay: 0.2s; }
+  .tc-bars > i:nth-child(3) { animation-delay: 0.4s; }
+}
+
+@keyframes tc-bar {
+  0%, 100% { height: 20%; }
+  50%      { height: 100%; }
 }
 
 /* 顶部扫描线动效 */

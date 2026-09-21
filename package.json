@@ -1,6 +1,6 @@
 {
   "name": "tonecore",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "一体化音乐中枢 · 音源搜索 / 无损落库 / 自动刮削 / 小爱音箱接入",
   "workspaces": [
@@ -11,7 +11,7 @@
     "build": "npm run build -w apps/web && npm run build -w apps/server",
     "start": "npm run start -w apps/server",
     "lint": "npm run lint -w apps/server",
-    "test": "npm run build -w apps/server && node apps/server/test/tags.test.mjs"
+    "test": "npm run build -w apps/server && node apps/server/test/tags.test.mjs && node apps/server/test/player.test.mjs && node apps/server/test/queue.test.mjs && node apps/server/test/scraper-cover.test.mjs && node apps/server/test/cover-extract.test.mjs"
   },
   "engines": {
     "node": ">=20"

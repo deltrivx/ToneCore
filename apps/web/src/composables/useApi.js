@@ -35,6 +35,28 @@ export const api = {
   search:      (kw) => req(`/api/search?keyword=${encodeURIComponent(kw)}`),
   play:        (kw, artist) => req('/api/play', { method: 'POST', body: { keyword: kw, artist } }),
   downloads:   () => req('/api/downloads'),
+  platforms:   () => req('/api/platforms'),
+
+  // ---------- 播放器 ----------
+  player:       () => req('/api/player'),
+  playerQueue:  (songs, index = 0) => req('/api/player/queue', { method: 'POST', body: { songs, index } }),
+  playerAppend: (songs) => req('/api/player/append', { method: 'POST', body: { songs } }),
+  playerJump:   (index) => req('/api/player/jump', { method: 'POST', body: { index } }),
+  playerNext:   (manual = true) => req('/api/player/next', { method: 'POST', body: { manual } }),
+  playerPrev:   () => req('/api/player/prev', { method: 'POST' }),
+  playerRepeat: (mode) => req('/api/player/repeat', { method: 'POST', body: { mode } }),
+  playerPlaying:(playing) => req('/api/player/playing', { method: 'POST', body: { playing } }),
+  playerVolume: (volume) => req('/api/player/volume', { method: 'POST', body: { volume } }),
+  playerRemove: (uid) => req('/api/player/remove', { method: 'POST', body: { uid } }),
+  playerClear:  () => req('/api/player/clear', { method: 'POST' }),
+
+  /** 取歌词：本地歌传 filePath，在线歌传 title/artist */
+  lyrics: (params) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+    ).toString();
+    return req(`/api/lyrics?${qs}`);
+  },
 
   audit:       (limit = 200) => req('/api/scraper/audit', { method: 'POST', body: { limit } }),
   backfill:    (limit = 20) => req('/api/scraper/backfill', { method: 'POST', body: { limit } }),

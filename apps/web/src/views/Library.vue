@@ -67,16 +67,19 @@
       <span class="text-slate-400">失败 <b class="text-slate-600">{{ backfillResult.failed }}</b></span>
     </div>
 
-    <!-- 试听 -->
-    <div v-if="playing" class="tc-card p-3 flex items-center gap-3">
+    <!-- 当前播放（试听走后端播放器，与「正在播放」页共用同一个队列） -->
+    <div v-if="player.state.queue.length" class="tc-card p-3 flex items-center gap-3">
       <span class="tc-dot tc-dot-ok shrink-0"></span>
       <div class="min-w-0 flex-1">
-        <div class="text-sm text-slate-300 truncate">{{ playing.title }}</div>
-        <div class="text-xs text-slate-600 truncate">{{ playing.artist }}</div>
+        <div class="text-sm text-slate-300 truncate">
+          {{ player.current.value?.title || '未在播放' }}
+        </div>
+        <div class="text-xs text-slate-600 truncate">{{ player.current.value?.artist }}</div>
       </div>
-      <audio :src="playing.url" controls autoplay class="h-8 w-[220px] shrink-0"
-        @ended="playing = null"></audio>
-      <button class="tc-btn text-xs shrink-0" @click="playing = null">关闭</button>
+      <button class="tc-btn-primary text-xs shrink-0" @click="player.toggle">
+        {{ player.state.playing ? '暂停' : '播放' }}
+      </button>
+      <button class="tc-btn text-xs shrink-0" @click="player.clear">停止</button>
     </div>
 
     <div v-if="!data?.songs?.length" class="tc-card p-8 text-center text-sm text-slate-600">
@@ -85,19 +88,36 @@
 
     <template v-else>
       <div class="tc-card overflow-hidden divide-y divide-ink-800">
-        <div v-for="s in data.songs" :key="s.id"
-          class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-ink-800/50 transition-colors group">
-          <button class="tc-icon-btn shrink-0" title="试听" @click="play(s)">
-            <span class="text-xs">▶</span>
-          </button>
-          <span class="text-slate-200 truncate flex-1 min-w-0">{{ s.title }}</span>
-          <span class="text-slate-500 truncate hidden sm:inline max-w-[120px]">{{ s.artist }}</span>
-          <span class="text-slate-600 truncate hidden md:inline max-w-[140px] text-xs">{{ s.album }}</span>
+        <div v-for="(s, i) in data.songs" :key="s.id"
+          class="px-2 sm:px-4 py-2 flex items-center gap-3 text-sm hover:bg-ink-800/50 transition-colors group cursor-pointer"
+          @dblclick="play(s, i)">
+          <!-- 封面：有缓存图就显示，没有则用首字母占位 -->
+          <div class="w-10 h-10 shrink-0 rounded-md overflow-hidden bg-ink-700
+                      flex items-center justify-center relative">
+            <img v-if="s.cover" :src="`/cover/${s.cover}`" :alt="s.title"
+                 class="w-full h-full object-cover" loading="lazy" />
+            <span v-else class="text-slate-500 text-sm font-medium">{{ initial(s) }}</span>
+            <!-- 悬停时封面变播放键 -->
+            <button class="absolute inset-0 hidden group-hover:flex items-center justify-center
+                           bg-black/55 text-white text-sm" title="播放" @click.stop="play(s, i)">
+              ▶
+            </button>
+          </div>
+
+          <div class="min-w-0 flex-1">
+            <div class="text-slate-200 truncate"
+                 :class="{ 'text-neon-soft': player.current.value?.id === s.id }">{{ s.title }}</div>
+            <div class="text-xs text-slate-500 truncate">{{ s.artist || '未知歌手' }}</div>
+          </div>
+
+          <span class="text-slate-600 truncate hidden md:inline max-w-[150px] text-xs">{{ s.album }}</span>
           <span class="font-mono text-[10px] text-slate-700 shrink-0 hidden lg:inline">
             {{ ext(s.filePath) }}
           </span>
+          <button class="tc-icon-btn shrink-0 opacity-0 group-hover:opacity-100 text-[10px]"
+            title="添加到队列" @click.stop="addOne(s)">＋</button>
           <button class="tc-icon-btn shrink-0 opacity-0 group-hover:opacity-100 text-rose-400/70 hover:text-rose-400"
-            :disabled="deletingId === s.id" title="移入回收站" @click="remove(s)">
+            :disabled="deletingId === s.id" title="移入回收站" @click.stop="remove(s)">
             <span class="text-xs">{{ deletingId === s.id ? '…' : '✕' }}</span>
           </button>
         </div>
@@ -124,8 +144,10 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
+import { usePlayer } from '../composables/usePlayer.js';
 
 const PAGE = 50;
+const player = usePlayer();
 
 const data = ref(null);
 const stats = ref(null);
@@ -136,7 +158,6 @@ const auditing = ref(false);
 const backfilling = ref(false);
 const auditResult = ref(null);
 const backfillResult = ref(null);
-const playing = ref(null);
 const deletingId = ref(null);
 const message = ref(null);
 
@@ -170,14 +191,34 @@ function page(dir) {
   load();
 }
 
-/** 试听走 /stream 直链，用原生 audio 元素播放 */
-function play(song) {
-  playing.value = {
-    title: song.title,
-    artist: song.artist,
-    // filePath 里可能含中文与空格，必须编码
-    url: `/stream/${encodeURIComponent(song.filePath)}`,
-  };
+/**
+ * 播放曲库歌曲。
+ *
+ * 这里刻意把**整页曲目**当作队列交给播放器（而不是只播一首），
+ * 这样「下一首」能顺着列表往下走 —— 符合音乐播放器的通行行为。
+ */
+function play(song, index) {
+  const songs = (data.value?.songs || []).map((s) => ({
+    title: s.title, artist: s.artist, album: s.album,
+    filePath: s.filePath, platform: 'local', songId: String(s.id),
+  }));
+  const at = Math.max(0, index ?? songs.findIndex((s) => s.filePath === song.filePath));
+  player.playList(songs, at);
+}
+
+/** 无封面时的占位字符：取歌名首字（中文一字足够辨识，英文取首字母大写） */
+function initial(song) {
+  const t = String(song.title || '').trim();
+  return t ? t[0].toUpperCase() : '♪';
+}
+
+/** 单首加入队列（不打断当前播放） */
+async function addOne(song) {
+  await player.append([{
+    title: song.title, artist: song.artist, album: song.album,
+    filePath: song.filePath, platform: 'local', songId: String(song.id),
+  }]);
+  message.value = { ok: true, text: `已添加到队列：${song.title}` };
 }
 
 async function scan() {
@@ -214,7 +255,6 @@ async function remove(song) {
       ? { ok: true, text: `已移入回收站：${song.title}` }
       : { ok: false, text: r.error || '删除失败' };
     if (r.ok) {
-      if (playing.value) playing.value = null;
       await Promise.all([load(), loadStats()]);
     }
   } finally { deletingId.value = null; }

@@ -89,24 +89,135 @@ export async function fetchLyrics(title: string, artist?: string, platform?: str
     }
   }
 
-  // ---- 2) 通用搜索：按关键词找 LRC ----
-  const txt = await getText(
-    `https://api.lrc.cx/api/search?keyword=${q}`,
-    8000,
-  ).catch(() => null);
-  if (txt) {
-    try {
-      const j = JSON.parse(txt);
-      const list = Array.isArray(j) ? j : (j?.data ?? []);
-      for (const it of list.slice(0, 3)) {
-        const lrc = typeof it?.lrc === 'string' ? it.lrc : pickLrc(it);
-        if (lrc) return { lrc, source: 'lrc.cx', plain: !/\[\d{2}:\d{2}/.test(lrc) };
-      }
-    } catch { /* 非 JSON */ }
+  // ---- 2) 网易云：候选按分排序，逐个试歌词，取**第一个真有歌词的** ----
+  //
+  // 为什么不是「取最高分那首的歌词」：正版曲目在网易常因版权下架，搜索结果
+  // 只剩翻唱；而翻唱版本**多数不带歌词**（实测：稻香/本草纲目 前 3 个候选
+  // 歌词全为空，第 4 个才有）。只认最高分就会得出「这首歌没歌词」的假结论。
+  const cands = await searchWyList(title, artist, 8);
+  for (const c of cands) {
+    const lrc = await lyricFromWy(c.id);
+    if (lrc) return { lrc, source: 'wy', plain: !/\[\d{2}:\d{2}/.test(lrc) };
   }
 
-  logger.debug({ title, artist }, '未能获取歌词');
+  logger.debug({ title, artist, candidates: cands.length }, '未能获取歌词');
   return null;
+}
+
+/**
+ * 网易云搜索：返回**按匹配度排序的候选列表**（而非单个最佳）。
+ *
+ * 两个实测坑：
+ *   1) 搜索接口**不返回 picUrl**（`album.picUrl` 恒为 null），封面必须另外
+ *      调 `api/song/detail?ids=[id]`。
+ *   2) 结果里大量是翻唱/魔改版，标题还常带括号后缀（`稻香(深情版)`），
+ *      直接取第一条会拿错人。
+ */
+async function searchWyList(
+  title: string,
+  artist?: string,
+  limit = 8,
+): Promise<Array<{ id: string; name: string; artist: string; album?: string }>> {
+  const q = encodeURIComponent(`${title} ${artist ?? ''}`.trim());
+  const txt = await getText(`https://music.163.com/api/search/get?s=${q}&type=1&limit=${limit}`);
+  if (!txt) return [];
+  try {
+    const j = JSON.parse(txt);
+    const list: any[] = j?.result?.songs ?? [];
+    const out: Array<{ id: string; name: string; artist: string; album?: string; score: number }> = [];
+
+    for (const s of list) {
+      const name = String(s?.name ?? '');
+      const arts = Array.isArray(s?.artists) ? s.artists.map((a: any) => a?.name).filter(Boolean).join('/') : '';
+      // 剥掉括号后缀再比，否则「稻香(深情版)」与真原唱都是「部分匹配」，分不开
+      const ts = similarityLite(stripSuffix(name), title);
+      if (ts < 0.5) continue;
+      let score = ts * 2;
+      if (artist) {
+        const as = similarityLite(arts, artist);
+        if (as >= 0.8) score += 1.5;
+        else if (as >= 0.5) score += 0.5;
+        else score -= 1.0;
+      }
+      if (NOISE_RE.test(name)) score -= 1.2;   // 翻唱/伴奏/DJ 版降权
+      out.push({ id: String(s.id), name, artist: arts, album: s?.album?.name || undefined, score });
+    }
+
+    return out.sort((a, b) => b.score - a.score).slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+/** 取匹配度最高的单个候选项（供封面使用） */
+async function searchWy(
+  title: string,
+  artist?: string,
+): Promise<{ id: string; name: string; artist: string; picUrl?: string; album?: string } | null> {
+  const cands = await searchWyList(title, artist, 10);
+  if (cands.length === 0) return null;
+  const best = cands[0];
+  return { ...best, picUrl: await coverFromWy(best.id) };
+}
+
+/** 版本噪音词（与 source 模块保持同一套口径） */
+const NOISE_RE = /伴奏|remix|dj|翻唱|cover|纯音乐|消音|ktv|铃声|串烧|改编|慢摇|抖音|恶搞|搞笑|鬼畜|堵桥|喊麦|土味|电音|八音盒|童声|儿歌|合唱|清唱|demo|试听|片段|降调|升调|变调|加速版|减速版|治愈版|深情版|正式版/i;
+
+/** 剥掉标题里的括号后缀与常见噪声，便于与原曲名比对 */
+function stripSuffix(s: string): string {
+  return s
+    .replace(/[（(\[【][^）)\]】]*[）)\]】]/g, '')   // 中英文括号内容
+    .replace(/\s*[-–—]\s*.*$/, '')                 // 破折号后的说明
+    .trim();
+}
+
+/**
+ * 用 songId 换封面地址。
+ *
+ * 搜索接口给的 `album.picUrl` 是空的，必须走 detail 接口 —— 这是实测结论，
+ * 不是猜的（搜 5 首歌的 picUrl 全为 null，detail 接口全部有值）。
+ */
+async function coverFromWy(id: string): Promise<string | undefined> {
+  const txt = await getText(`https://music.163.com/api/song/detail?ids=%5B${id}%5D`);
+  if (!txt) return undefined;
+  try {
+    const j = JSON.parse(txt);
+    const s = j?.songs?.[0];
+    const url = s?.album?.picUrl;
+    return typeof url === 'string' && url ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 取网易云歌词（LRC 原文，带时间轴） */
+async function lyricFromWy(id: string): Promise<string | null> {
+  const txt = await getText(`https://music.163.com/api/song/lyric?id=${id}&lv=1&kv=1&tv=-1`);
+  if (!txt) return null;
+  try {
+    const j = JSON.parse(txt);
+    const lrc = j?.lrc?.lyric;
+    if (typeof lrc === 'string' && lrc.trim()) return lrc.trim();
+  } catch { /* 非 JSON */ }
+  return null;
+}
+
+/**
+ * 轻量相似度（仅用于本文件内的候选挑选，避免与 source 模块循环依赖）。
+ * 规则与 `services/source` 中保持一致：清洗标点后全等 1.0 / 包含 0.85 /
+ * 否则按字符交集比例给分。
+ */
+function similarityLite(a: string, b: string): number {
+  const clean = (s: string) => s.toLowerCase().replace(/[\s\-_（）()《》·、,，.。!！?？'"“”]/g, '');
+  const x = clean(a);
+  const y = clean(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.includes(y) || y.includes(x)) return 0.85;
+  const setY = new Set(y);
+  let hit = 0;
+  for (const c of x) if (setY.has(c)) hit++;
+  return (hit / Math.max(x.length, y.length)) * 0.7;
 }
 
 /**
@@ -126,14 +237,20 @@ export async function fetchCover(
   }
   if (!title) return null;
 
-  const q = encodeURIComponent(`${title} ${artist ?? ''}`.trim());
-  const txt = await getText(`https://api.lrc.cx/api/cover?keyword=${q}`);
-  if (!txt) return null;
-  try {
-    const j = JSON.parse(txt);
-    const url = j?.url ?? j?.data?.url ?? (Array.isArray(j) ? j[0]?.url : null);
-    if (typeof url === 'string') return await downloadImage(url);
-  } catch { /* 非 JSON */ }
+  // 兜底：借网易云搜出封面地址。
+  //
+  // 此前这里调的是 `api.lrc.cx/api/cover`，该服务已下线（返回 404），
+  // 于是「没有 coverUrl 的歌」永远拿不到封面 —— 这是封面目测缺失的直接原因。
+  //
+  // 逐个候选试（不只看最高分）：最高分那首可能是无封面的翻唱，
+  // 次高分反而有图。实测「孤勇者」就属于这种情况。
+  const cands = await searchWyList(title, artist, 6);
+  for (const c of cands) {
+    const url = await coverFromWy(c.id);
+    if (!url) continue;
+    const hit = await downloadImage(url);
+    if (hit) return hit;
+  }
   return null;
 }
 

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { parseFile } from 'music-metadata';
 import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 
@@ -12,6 +14,8 @@ export interface LibrarySong {
   filePath: string;
   duration: number | null;
   addedAt: number;
+  /** 封面缓存文件名（data/covers 下）；空串表示无封面 */
+  cover?: string;
 }
 
 /**
@@ -54,10 +58,71 @@ export class Library {
         created_at INTEGER NOT NULL
       );
     `);
+
+    // 增量迁移：老库没有 cover 列。SQLite 的 ADD COLUMN 是幂等的写法需要
+    // 先查 pragma，直接 ADD 会在第二次启动时报 duplicate column。
+    const cols = this.db.prepare('PRAGMA table_info(songs)').all() as any[];
+    if (!cols.some((c) => c.name === 'cover')) {
+      this.db.exec('ALTER TABLE songs ADD COLUMN cover TEXT');
+    }
+  }
+
+  /**
+   * 从音频文件抽内嵌封面，落成 data/covers/<hash>.jpg。
+   *
+   * 为什么单独缓存而不是每次读音频：曲库列表一页 50 首，每首都去解析
+   * 几十 MB 的 FLAC 标签会非常慢；抽一次存小图（通常几十 KB）后，
+   * 列表直接用 `<img src="/cover/xxx.jpg">` 加载。
+   */
+  async extractCovers(limit = 500): Promise<number> {
+    const cfg = loadConfig();
+    const coverDir = path.join(cfg.dataDir, 'covers');
+    try { fs.mkdirSync(coverDir, { recursive: true }); } catch { return 0; }
+
+    // 只处理还没抽过的（cover 为 NULL）。
+    // 注意：**不能用空串当「已处理」标记** —— 文件短暂不可读（正在写入 / 被移动）
+    // 时会误判为「无封面」，之后永远不再重试。所以失败时就保持 NULL 等下次。
+    //
+    // 另外把历史遗留的空串也一并重试：早前版本因为漏了 await，把所有歌都
+    // 标成了「无封面」，这批数据必须能自愈，否则老用户升级后依然全无封面。
+    const rows = this.db.prepare(
+      `SELECT id, file_path FROM songs
+        WHERE cover IS NULL OR cover = ''
+        ORDER BY (cover = '') ASC
+        LIMIT ?`
+    ).all(limit) as any[];
+    if (rows.length === 0) return 0;
+
+    let done = 0;
+    for (const r of rows) {
+      const abs = path.resolve(cfg.musicDir, r.file_path);
+      try {
+        if (!fs.existsSync(abs)) continue;          // 文件不在 → 留 NULL，下轮再看
+        // parseFile 是**异步**的：早前这里漏了 await，拿到的是 Promise，
+        // `md.common` 恒为 undefined，于是每首歌都被判成「无封面」。
+        const md = await parseFile(abs, { duration: false });
+        const pic = md?.common?.picture?.[0];
+        if (!pic?.data) {
+          // 确实没有内嵌封面：写空串占位，避免每次扫描都重新解析
+          this.db.prepare('UPDATE songs SET cover = ? WHERE id = ?').run('', r.id);
+          continue;
+        }
+        const ext = pic.format === 'image/png' ? 'png' : 'jpg';
+        const name = createHash('sha1').update(r.file_path).digest('hex').slice(0, 16) + '.' + ext;
+        fs.writeFileSync(path.join(coverDir, name), pic.data);
+        this.db.prepare('UPDATE songs SET cover = ? WHERE id = ?').run(name, r.id);
+        done++;
+      } catch (e) {
+        // 解析失败：保持 NULL 以便下次重试，不写空串（否则永久失去封面）
+        logger.debug({ file: r.file_path, err: String(e).slice(0, 120) }, '封面提取失败，下次重试');
+      }
+    }
+    if (done > 0) logger.info({ extracted: done }, '封面提取完成');
+    return done;
   }
 
   /** 扫描音乐目录，增量入库 */
-  scan(): { added: number; total: number } {
+  async scan(): Promise<{ added: number; total: number }> {
     const cfg = loadConfig();
     const exts = ['.flac', '.mp3', '.m4a', '.wav', '.ape', '.ogg', '.opus'];
     let added = 0;
@@ -98,6 +163,10 @@ export class Library {
     };
 
     walk(cfg.musicDir);
+    // 抽封面：内嵌封面转成独立小图缓存，供界面直接展示。
+    // 放在扫描之后统一做，避免在 walk 里同步读大文件拖慢扫描。
+    // 这一步是异步的（要 await parseFile），所以 scan 本身也是 async。
+    await this.extractCovers();
     const total = (this.db.prepare('SELECT COUNT(*) AS c FROM songs').get() as any).c;
     logger.info({ added, total }, '曲库扫描完成');
     return { added, total };
@@ -244,6 +313,15 @@ export class Library {
     return {
       id: r.id, title: r.title, artist: r.artist, album: r.album,
       filePath: r.file_path, duration: r.duration, addedAt: r.added_at,
+      cover: r.cover || undefined,
     };
+  }
+
+  /** 按封面缓存文件名取绝对路径（供 /cover/:name 路由用） */
+  coverPath(name: string): string | null {
+    // 只允许纯文件名，挡住目录穿越（封面名是我们自己生成的 sha1，不含路径分隔符）
+    if (!name || name.includes('/') || name.includes('\\') || name.includes('..')) return null;
+    const abs = path.join(loadConfig().dataDir, 'covers', name);
+    return fs.existsSync(abs) ? abs : null;
   }
 }

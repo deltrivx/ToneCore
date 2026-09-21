@@ -9,6 +9,8 @@ import type { Library } from '../services/library/index.js';
 import type { Scraper } from '../services/scraper/index.js';
 import type { SpeakerService } from '../services/speaker/index.js';
 import type { Orchestrator } from '../services/orchestrator.js';
+import type { PlayerService, QueueItem, RepeatMode } from '../services/player/index.js';
+import type { LyricsService } from '../services/player/lyrics.js';
 
 export interface Deps {
   engine: SourceEngine;
@@ -17,8 +19,33 @@ export interface Deps {
   scraper: Scraper;
   speaker: SpeakerService;
   orchestrator: Orchestrator;
+  player: PlayerService;
+  lyrics: LyricsService;
   /** 对外访问地址（推给音箱用） */
   publicBase: () => string;
+}
+
+/**
+ * 把前端传来的歌曲对象归一成队列项。
+ *
+ * 前端可能送两种形态：搜索结果（有 platform/songId）或曲库条目（有 filePath）。
+ * 这里统一补齐 uid / origin，避免这些判断散落到播放器各处。
+ */
+let routeUid = 0;
+function normalizeQueueItem(s: any, _i: number): QueueItem {
+  const filePath = s.filePath ? String(s.filePath) : undefined;
+  return {
+    uid: String(s.uid || `r${Date.now().toString(36)}${(routeUid++).toString(36)}`),
+    title: String(s.title || ''),
+    artist: String(s.artist || ''),
+    album: s.album ? String(s.album) : undefined,
+    platform: String(s.platform || 'kw'),
+    songId: String(s.songId ?? s.id ?? ''),
+    filePath,
+    origin: filePath ? 'local' : 'remote',
+    duration: Number(s.duration) || undefined,
+    coverUrl: s.coverUrl ? String(s.coverUrl) : undefined,
+  };
 }
 
 export async function registerRoutes(app: FastifyInstance, d: Deps) {
@@ -126,8 +153,104 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     const keyword = String(q.keyword || '').trim();
     if (!keyword) return { ok: false, error: '缺少 keyword' };
     const groups = await d.engine.searchAll(keyword, q.platforms ? String(q.platforms).split(',') : undefined);
-    return { ok: true, keyword, platforms: Object.fromEntries([...groups].map(([k, v]) => [k, v.slice(0, 20)])) };
+    return {
+      ok: true, keyword,
+      platforms: Object.fromEntries([...groups].map(([k, v]) => [k, v.slice(0, 20)])),
+      /** 已下线的平台（界面可据此说明为什么看不到） */
+      retired: d.engine.retiredPlatforms,
+    };
   });
+
+  // ---------- 播放器（SongLoft 契约） ----------
+  //
+  // 队列与播放状态都放在服务端：<audio> 没有播放列表概念，
+  // 状态放前端的话刷新即丢，多设备也无法同步。
+
+  /** 当前播放器全量状态（前端轮询 / 首屏拉取） */
+  app.get('/api/player', async () => d.player.snapshot());
+
+  /** 用一组搜索结果替换队列并定位播放 */
+  app.post('/api/player/queue', async (req) => {
+    const b = (req.body || {}) as any;
+    const songs = Array.isArray(b.songs) ? b.songs : [];
+    if (songs.length === 0) return { ok: false, error: '队列为空' };
+    const items = songs.map((s: any, i: number) => normalizeQueueItem(s, i));
+    const st = await d.player.setQueue(items, Number(b.index) || 0);
+    return { ok: true, ...st };
+  });
+
+  /** 追加到队列尾部 */
+  app.post('/api/player/append', async (req) => {
+    const b = (req.body || {}) as any;
+    const songs = Array.isArray(b.songs) ? b.songs : [b.song].filter(Boolean);
+    if (songs.length === 0) return { ok: false, error: '没有可追加的歌曲' };
+    return { ok: true, ...d.player.append(songs.map((s: any, i: number) => normalizeQueueItem(s, i))) };
+  });
+
+  /** 跳到指定下标 */
+  app.post('/api/player/jump', async (req) => {
+    const b = (req.body || {}) as any;
+    return { ok: true, ...(await d.player.jump(Number(b.index))) };
+  });
+
+  app.post('/api/player/next', async (req) => {
+    const b = (req.body || {}) as any;
+    // manual=true 表示用户主动按的；自动播完由前端传 manual:false
+    return { ok: true, ...(await d.player.next(b.manual !== false)) };
+  });
+
+  app.post('/api/player/prev', async () => ({ ok: true, ...(await d.player.prev()) }));
+
+  app.post('/api/player/repeat', async (req) => {
+    const b = (req.body || {}) as any;
+    const mode = String(b.mode || '') as RepeatMode;
+    if (!['list', 'single', 'shuffle'].includes(mode)) {
+      return { ok: false, error: 'mode 必须是 list / single / shuffle' };
+    }
+    return { ok: true, ...d.player.setRepeat(mode) };
+  });
+
+  app.post('/api/player/playing', async (req) => {
+    const b = (req.body || {}) as any;
+    return { ok: true, ...d.player.setPlaying(b.playing !== false) };
+  });
+
+  app.post('/api/player/volume', async (req) => {
+    const b = (req.body || {}) as any;
+    return { ok: true, ...d.player.setVolume(Number(b.volume) || 0) };
+  });
+
+  /** 从队列移除一项（按 uid） */
+  app.post('/api/player/remove', async (req) => {
+    const b = (req.body || {}) as any;
+    return { ok: true, ...d.player.remove(String(b.uid || '')) };
+  });
+
+  app.post('/api/player/clear', async () => ({ ok: true, ...d.player.clear() }));
+
+  /** 队列持久化：把当前队列原样存下来，下次可恢复 */
+  app.get('/api/player/queue', async () => ({ queue: d.player.snapshot().queue }));
+
+  /**
+   * 歌词。两种取法：
+   *   1) 带 filePath（本地歌）→ 读同名 .lrc
+   *   2) 带 title/artist（在线歌）→ 走在线歌词接口
+   */
+  app.get('/api/lyrics', async (req) => {
+    const q = req.query as any;
+    const title = String(q.title || '').trim();
+    const relPath = q.filePath ? String(q.filePath) : undefined;
+    if (!title && !relPath) return { ok: false, error: '需要 title 或 filePath' };
+    const r = await d.lyrics.get(relPath, title || relPath || '', q.artist ? String(q.artist) : undefined,
+      q.platform ? String(q.platform) : undefined, q.songId ? String(q.songId) : undefined);
+    return { ok: true, ...r };
+  });
+
+  // 平台可用性说明（哪些平台搜索可用 / 哪些已下线）
+  app.get('/api/platforms', async () => ({
+    active: d.engine.searchPlatforms,
+    retired: d.engine.retiredPlatforms,
+  }));
 
   // ---------- 点歌（核心） ----------
   app.post('/api/play', async (req) => {
@@ -262,6 +385,23 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     }
     reply.header('Content-Length', hit.size).header('Content-Type', mime).header('Accept-Ranges', 'bytes');
     return reply.send(fs.createReadStream(hit.abs));
+  });
+
+  // ---------- 曲库封面 ----------
+  //
+  // 封面由 library 扫描时从音频内嵌图片抽出，落在 data/covers 下，
+  // 这里只做「按名取文件」。名字是服务端生成的 sha1，不接受任何路径成分。
+  app.get('/cover/:name', async (req, reply) => {
+    const name = String((req.params as any).name || '');
+    const abs = d.lib.coverPath(name);
+    if (!abs) return reply.code(404).send({ error: 'not found' });
+    const ext = name.split('.').pop()?.toLowerCase();
+    const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+    // 缓存一天：封面内容按文件路径做键，同一首歌不会变
+    return reply
+      .header('Content-Type', mime)
+      .header('Cache-Control', 'public, max-age=86400')
+      .send(fs.createReadStream(abs));
   });
 
   // ---------- 在线直链代理 ----------

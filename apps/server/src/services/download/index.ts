@@ -163,8 +163,8 @@ export class Downloader {
         }
       }
 
-      // 同步进曲库索引
-      this.lib.scan();
+      // 同步进曲库索引（scan 是异步的：会顺带 await 抽内嵌封面）
+      await this.lib.scan();
       this.lib.log({
         title: song.title, artist: song.artist, platform: song.platform,
         quality: url.quality, filePath: relFile, status: 'success',

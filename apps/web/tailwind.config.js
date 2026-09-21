@@ -5,7 +5,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 深色科技风配色
+        // 深色科技风配色（与新图标的天蓝主色对齐）
         ink: {
           950: '#070a12',
           900: '#0a0e17',
@@ -14,10 +14,15 @@ export default {
           700: '#1c2436',
           600: '#28324a',
         },
+        // 主色改为图标同款天蓝，比旧版青色更亮、更接近品牌色
         neon: {
-          DEFAULT: '#00e5ff',
-          soft: '#5cf2ff',
-          dim: '#0091a8',
+          DEFAULT: '#4FC3F7',
+          soft: '#8ad8ff',
+          dim: '#2E9BE8',
+        },
+        amber: {
+          DEFAULT: '#FFC13B',
+          soft: '#ffd77a',
         },
         violet: {
           DEFAULT: '#8b5cf6',
@@ -25,8 +30,8 @@ export default {
         },
       },
       boxShadow: {
-        glow: '0 0 24px rgba(0, 229, 255, 0.15)',
-        'glow-lg': '0 0 48px rgba(0, 229, 255, 0.22)',
+        glow: '0 0 24px rgba(79, 195, 247, 0.18)',
+        'glow-lg': '0 0 48px rgba(79, 195, 247, 0.26)',
         card: '0 4px 24px rgba(0, 0, 0, 0.4)',
       },
       fontFamily: {

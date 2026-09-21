@@ -2,6 +2,7 @@ import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 import { SourceLoader } from './loader.js';
 import { SearchEngine } from '../search/index.js';
+import { RETIRED_PLATFORMS } from '../search/index.js';
 import { fetchKwUrl } from '../search/platforms/kw-url.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,21 +35,41 @@ function similarity(a: string, b: string): number {
 
 /**
  * 版本噪音词：命中则降权（点歌场景要原版，不要 remix/伴奏/翻唱）。
+ *
+ * 分两档，因为危害程度不同：
+ *   strong —— 几乎可以确定「不是用户想听的那首」：翻唱、伴奏、恶搞、DJ。
+ *             命中一个就应当把该候选压到原唱之下。
+ *   weak   —— 可能是同一首的正常版本（Live、重制、母带），只是偏好更低。
  */
-const VERSION_NOISE = [
-  '伴奏', 'remix', 'dj', 'live', '现场', '翻唱', 'cover', '纯音乐',
-  '钢琴', '吉他', '口琴', '演奏', '消音', 'ktv', '铃声', '串烧',
-  '改编', '加快', '放慢', '慢摇', '抖音', '完整版', '女生版', '男声版',
-  '童声', '合唱', '清唱', 'demo', '试听', '片段', '另一版', '重制',
+const NOISE_STRONG = [
+  '伴奏', 'remix', 'dj', '翻唱', 'cover', '纯音乐', '消音', 'ktv',
+  '铃声', '串烧', '改编', '慢摇', '抖音', '恶搞', '搞笑', '鬼畜',
+  '奥特曼', '作业版', '堵桥', '喊麦', '土味', '电音', '八音盒',
+  '童声', '儿歌', '贝瓦', '合唱', '清唱', 'demo', '试听', '片段',
+  '降调', '升调', '变调', '加速版', '减速版',
 ];
 
-/** 计算版本噪音惩罚（0~1，越大越该降权） */
+const NOISE_WEAK = [
+  'live', '现场', '演奏', '钢琴', '吉他', '口琴', '完整版',
+  '女生版', '男声版', '男版', '女版', '另一版', '重制', '新版',
+  '修复版', '纪念版', '特别版', 'single version', 'acoustic',
+];
+
+/**
+ * 计算版本噪音惩罚（越大越该降权）。
+ *
+ * 实测校准（2026-09-22）：旧版每个词只扣 0.25、上限 0.5，
+ * 导致「沐云轩 - 稻香（堵桥版）」与「周杰伦 - 稻香」拉不开差距，
+ * 而 kw 平台搜「稻香」的结果里根本没有原唱 —— 于是点歌点到了恶搞版。
+ * 现在强噪音直接重罚 1.2，确保原唱（无噪音）稳定胜出。
+ */
 function noisePenalty(title: string): number {
   const t = title.toLowerCase();
-  let hit = 0;
-  for (const w of VERSION_NOISE) if (t.includes(w)) hit++;
-  // 命中越多惩罚越重，但最多扣一半
-  return Math.min(hit * 0.25, 0.5);
+  let penalty = 0;
+  for (const w of NOISE_STRONG) if (t.includes(w)) penalty += 1.2;
+  for (const w of NOISE_WEAK) if (t.includes(w)) penalty += 0.45;
+  // 封顶：即便命中一堆噪音词，也不至于把分数打成负数（那是「淘汰」的语义，另由阈值管）
+  return Math.min(penalty, 2.4);
 }
 
 /**
@@ -69,7 +90,8 @@ export function pickBest(cands: Song[], title: string, artist?: string): Song | 
     // 标题完全不沾边 → 直接淘汰
     if (ts < 0.35) continue;
 
-    let score = ts * 1.8;
+    // 与 resolve() 保持同一套打分口径，避免两条路径选出不同的歌
+    let score = (ts - 0.35) * 4;
 
     if (artist) {
       const as = similarity(c.artist, artist);
@@ -84,8 +106,8 @@ export function pickBest(cands: Song[], title: string, artist?: string): Song | 
     if (score > bestScore) { bestScore = score; best = c; }
   }
 
-  // 门槛：至少要像同一首歌
-  return bestScore >= 1.0 ? best : null;
+  // 门槛：至少要像同一首歌（与 resolve 的 MIN_SCORE 对齐）
+  return bestScore >= 2.0 ? best : null;
 }
 
 /**
@@ -107,6 +129,9 @@ export class SourceEngine {
 
   get sourceCount(): number { return this.loader.count; }
   get searchPlatforms(): string[] { return this.search.platforms; }
+
+  /** 已下线平台及原因（供界面说明） */
+  get retiredPlatforms(): Record<string, string> { return RETIRED_PLATFORMS; }
 
   listSources() {
     return this.loader.list().map((s) => ({
@@ -206,8 +231,15 @@ export class SourceEngine {
   }
 
   /**
-   * 单源连通性测试：只让这一个脚本去搜一次，返回结果或具体失败原因。
-   * 用于界面上「测一下这个源到底通不通」。
+   * 单源连通性测试。
+   *
+   * **重要**：洛雪脚本只实现取直链（action=musicUrl），**不实现 search**。
+   * 早期版本让脚本去 search 关键词，脚本抛 `action not support: search`
+   * 后挂在运行时的 30s 超时上，导致界面上每个音源都显示「超时」——
+   * 那是测法错了，不是音源坏了。
+   *
+   * 正确测法：宿主先自己搜出候选（搜索是宿主的能力），
+   * 再把候选交给**这一个脚本**去取链。取到即通。
    */
   async testSource(file: string, keyword: string): Promise<{
     ok: boolean; songs?: number; sample?: string; error?: string; ms?: number;
@@ -218,18 +250,43 @@ export class SourceEngine {
     if (meta.loadState === 'failed') {
       return { ok: false, error: '脚本加载失败：' + (meta.loadError || '未知原因') };
     }
+
+    const platform = meta.platforms[0] ?? 'kw';
     const t0 = Date.now();
+
+    // 1) 宿主搜索（脚本不参与）
+    let cands: Song[] = [];
     try {
-      const songs: Song[] = await this.loader.searchOne(
-        file, meta.platforms[0] ?? 'kw', keyword,
-      );
+      cands = await this.search.searchPlatform(platform, keyword);
+    } catch (e) {
+      return { ok: false, error: '宿主搜索失败：' + String(e).slice(0, 120), ms: Date.now() - t0 };
+    }
+    if (cands.length === 0) {
+      return {
+        ok: false,
+        error: `宿主的 ${platform} 平台搜索无结果，无法为脚本构造取链输入（与脚本本身无关）`,
+        ms: Date.now() - t0,
+      };
+    }
+
+    // 2) 只让这一个脚本取链
+    const target = cands[0];
+    const cfg = loadConfig();
+    try {
+      const url = await this.loader.getUrlFromScript(file, target, cfg.quality);
       const ms = Date.now() - t0;
-      if (!songs || songs.length === 0) {
-        return { ok: false, error: '脚本已加载，但该关键词未返回结果（源站可能限流或变动）', ms };
+      if (!url) {
+        return {
+          ok: false,
+          ms,
+          error: `脚本已加载，但未能取到直链（源站可能限流/失效）· 试了「${target.title} - ${target.artist}」`,
+        };
       }
       return {
-        ok: true, songs: songs.length, ms,
-        sample: `${songs[0].title}${songs[0].artist ? ' - ' + songs[0].artist : ''}`,
+        ok: true,
+        songs: cands.length,
+        ms,
+        sample: `${target.title} - ${target.artist} → ${url.quality}`,
       };
     } catch (e) {
       return { ok: false, error: String(e).slice(0, 200), ms: Date.now() - t0 };
@@ -284,11 +341,16 @@ export class SourceEngine {
     // 1) 汇总所有平台候选，统一打分
     const all: Scored[] = [];
     for (const [p, list] of groups) {
-      for (const s of list.slice(0, 8)) {
+      // 每个平台只取前 6 条：再往后的结果相关性断崖下跌，
+      // 放进池子只会增加「取链失败逐个重试」的耗时（曾导致单次点歌 125 秒）。
+      for (const s of list.slice(0, 6)) {
         const ts = similarity(s.title, keyword);
         if (ts < 0.35) continue;                       // 标题完全不沾边，淘汰
         const as = artist ? similarity(s.artist, artist) : 0.5;
-        let score = ts * 1.8;
+        // 标题是主导项：改为 (ts - 0.35) * 4，让「完全匹配」与「沾边」拉开距离。
+        // 旧写法 ts * 1.8 下，完全匹配与 0.85 部分匹配只差 0.27 分，
+        // 噪声惩罚一叠就反超 —— 这正是点到翻唱的直接原因。
+        let score = (ts - 0.35) * 4;
         if (artist) score += as >= 0.8 ? 1.6 : as >= 0.5 ? 0.6 : -1.2;
         const noise = noisePenalty(s.title);
         score -= noise;
@@ -312,6 +374,7 @@ export class SourceEngine {
       top: all.slice(0, 5).map((x) => ({
         p: x.s.platform, t: x.s.title.slice(0, 20), a: x.s.artist.slice(0, 14),
         score: Number(x.score.toFixed(2)), artistSim: Number(x.as.toFixed(2)),
+        noise: Number(x.noise.toFixed(2)),
       })),
     }, '候选池打分完成');
 
@@ -321,39 +384,72 @@ export class SourceEngine {
     // 分数很低的候选（例如别的歌手的翻唱），导致「点错歌」。
     // 宁可返回失败让上层提示，也不要放错歌。
     //
-    // 阈值依据实测分数分布：
-    //   3.4  = 标题完全匹配 + 歌手完全匹配（原唱）
-    //   2.88 = 标题匹配 + 歌手匹配，但有版本噪音词
-    //   1.8  = 标题匹配 + 歌手部分匹配（含 feat./合唱）
-    //   0.6  = 标题匹配但歌手不匹配（翻唱）← 必须拦住
-    const MIN_SCORE = artist ? 1.6 : 1.8;
+    // 阈值依据（改分后的实测分布）：
+    //   标题完全匹配 ts=1     → 基础分 (1-0.35)*4 = 2.60
+    //   歌手完全匹配 +1.6     → 原唱合计 4.20；有强噪音则 3.00
+    //   标题 0.85 部分匹配    → 基础分 2.00
+    //   标题沾边 ts=0.5       → 基础分 0.60（低于任何阈值，必被拦）
+    //
+    // 无 artist 时也要拦住「恶搞/翻唱」：它们标题完全匹配（2.60）
+    // 但带强噪音（-1.2）后落到 1.40。阈值取 2.0 可把原唱（2.60）留下、
+    // 把纯噪音版排除；同时保留 0.85 部分匹配（2.00）的容错空间。
+    const MIN_SCORE = artist ? 2.0 : 2.0;
+
+    // 单个候选取链的超时上限。
+    //
+    // 背景：音源脚本在源站不可达时会挂到洛雪运行时的 30s 超时，
+    // 若串行试 5 个候选就是 150 秒 —— 用户侧表现是「点歌卡死」。
+    // 这里给每个候选设 8s 上限，超时即换下一个，整体最坏 12 个候选 ≈ 96s，
+    // 且正常情况下第一个候选几百毫秒就返回。
+    const PER_CANDIDATE_TIMEOUT = 8000;
 
     const tried = new Set<string>();
     let bestRejected: Scored | null = null;
 
-    for (const cand of all.slice(0, 12)) {
-      const key = `${cand.s.platform}:${cand.s.id}`;
-      if (tried.has(key)) continue;
-      tried.add(key);
+    // 并发上限：串行试取链太慢，改为 3 路并发抢。
+    // 谁先成功用谁，但**按分数序**消费结果 —— 高分候选失败了才轮到低分，
+    // 避免「低分候选先返回就把高分挤掉」。
+    const candidates = all.slice(0, 12).filter((c) => c.score >= MIN_SCORE);
+    if (candidates.length === 0 && all.length > 0) bestRejected = all[0];
 
-      if (cand.score < MIN_SCORE) {
-        // 分数过低：记录但不再继续降级（后面的只会更差）
-        bestRejected = cand;
-        break;
-      }
+    for (let i = 0; i < candidates.length; i += 3) {
+      const batch = candidates.slice(i, i + 3).filter((c) => {
+        const key = `${c.s.platform}:${c.s.id}`;
+        if (tried.has(key)) return false;
+        tried.add(key);
+        return true;
+      });
+      if (batch.length === 0) continue;
 
-      const url = await this.getUrl(cand.s, q);
-      if (url) {
-        logger.info({
+      const results = await Promise.all(batch.map(async (cand) => {
+        let timer: NodeJS.Timeout | undefined;
+        const timeout = new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), PER_CANDIDATE_TIMEOUT);
+        });
+        try {
+          const url = await Promise.race([this.getUrl(cand.s, q), timeout]);
+          return { cand, url };
+        } catch {
+          return { cand, url: null };
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      }));
+
+      // 批内按分数序取第一个成功的
+      for (const { cand, url } of results) {
+        if (url) {
+          logger.info({
+            platform: cand.s.platform, title: cand.s.title, artist: cand.s.artist,
+            quality: url.quality, source: url.source, score: Number(cand.score.toFixed(2)),
+          }, '音源命中');
+          return { song: cand.s, url };
+        }
+        logger.debug({
           platform: cand.s.platform, title: cand.s.title, artist: cand.s.artist,
-          quality: url.quality, source: url.source, score: Number(cand.score.toFixed(2)),
-        }, '音源命中');
-        return { song: cand.s, url };
+          score: Number(cand.score.toFixed(2)),
+        }, '该候选取链失败，尝试下一个');
       }
-      logger.debug({
-        platform: cand.s.platform, title: cand.s.title, artist: cand.s.artist,
-        score: Number(cand.score.toFixed(2)),
-      }, '该候选取链失败，尝试下一个');
     }
 
     if (bestRejected) {
