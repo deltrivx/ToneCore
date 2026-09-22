@@ -241,7 +241,7 @@ export class SourceEngine {
    * 正确测法：宿主先自己搜出候选（搜索是宿主的能力），
    * 再把候选交给**这一个脚本**去取链。取到即通。
    */
-  async testSource(file: string, keyword: string): Promise<{
+  async testSource(file: string, keyword: string, platformOverride?: string): Promise<{
     ok: boolean; songs?: number; sample?: string; error?: string; ms?: number;
   }> {
     const metas = this.loader.listAll();
@@ -251,7 +251,12 @@ export class SourceEngine {
       return { ok: false, error: '脚本加载失败：' + (meta.loadError || '未知原因') };
     }
 
-    const platform = meta.platforms[0] ?? 'kw';
+    // 不能用 platforms[0] 硬取：kg / mg 的宿主搜索已下线（见 RETIRED_PLATFORMS），
+    // 而多数脚本把 kg 排在第一位，于是「测试」会对这些脚本一律报
+    // 「kg 平台搜索无结果」—— 但它们在 kw / tx / wy 上其实是好的。
+    // 因此挑第一个宿主还能搜的平台；外面显式传 platform 时以传入为准。
+    const usable = meta.platforms.filter((p) => !RETIRED_PLATFORMS[p]);
+    const platform = platformOverride || usable[0] || meta.platforms[0] || 'kw';
     const t0 = Date.now();
 
     // 1) 宿主搜索（脚本不参与）
