@@ -77,6 +77,16 @@ export async function searchKw(
   }
 
   const j = looseParse(text);
+
+  // 专辑维度返回的是 `albumlist`（专辑实体），不是 `abslist`（歌曲）。
+  // 需要再由专辑 id 拉取该专辑的曲目，否则永远取空。
+  if (type === 'album') {
+    const albums: any[] = j?.albumlist || [];
+    const aid = albums[0]?.albumid || albums[0]?.ALBUMID;
+    if (!aid) return [];
+    return await fetchKwAlbumSongs(String(aid), limit);
+  }
+
   const list: any[] = j?.abslist || [];
   if (list.length === 0) return [];
 
@@ -104,6 +114,53 @@ export async function searchKw(
         MUSICRID: rawRid,
         source: 'kw',
         duration,
+        interval: duration ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}` : '',
+      },
+    } as Song;
+  }).filter((s) => s.id && s.title);
+}
+
+/**
+ * 由专辑 id 取该专辑的曲目。
+ * `stype=albuminfo` 返回体里曲目在 `musiclist`（不是 `abslist`），
+ * 字段沿用歌曲那套（SONGNAME / ARTIST / MUSICRID / DURATION）。
+ */
+async function fetchKwAlbumSongs(albumId: string, limit: number): Promise<Song[]> {
+  const url =
+    `http://search.kuwo.cn/r.s?stype=albuminfo&albumid=${encodeURIComponent(albumId)}` +
+    `&rn=${limit}&pn=0&rformat=json&encoding=utf8`;
+  let text = '';
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': DEFAULT_UA, Referer: 'https://www.kuwo.cn/' },
+      signal: AbortSignal.timeout(12000),
+    });
+    text = await res.text();
+  } catch (e) {
+    logger.debug({ albumId, err: String(e).slice(0, 100) }, '酷我专辑曲目请求失败');
+    return [];
+  }
+  const j = looseParse(text);
+  const list: any[] = j?.musiclist || [];
+  const albumName = j?.name ? decodeEntities(j.name) : undefined;
+  return list.slice(0, limit).map((x: any) => {
+    const rawRid = String(x.MUSICRID || x.musicrid || '');
+    const rid = rawRid.replace(/^MUSIC_/, '');
+    const title = decodeEntities(x.SONGNAME || x.name || '');
+    const artist = decodeEntities(x.ARTIST || x.artist || j?.artist || '');
+    const duration = toSeconds(Number(x.DURATION) > 0 ? Number(x.DURATION) : undefined);
+    return {
+      platform: 'kw',
+      id: rid,
+      title,
+      artist,
+      album: albumName,
+      duration,
+      qualities: ['128k', '320k', 'flac'],
+      raw: {
+        name: title, singer: artist, album: albumName,
+        songmid: rid, musicId: rid, rid, id: rid, MUSICRID: rawRid,
+        source: 'kw', duration,
         interval: duration ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}` : '',
       },
     } as Song;
