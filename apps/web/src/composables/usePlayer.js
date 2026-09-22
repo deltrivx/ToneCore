@@ -52,37 +52,6 @@ let audioEl = null;
 
 function ensureAudio() {
   if (audioEl) return audioEl;
-  // ---- 播放进度上报（跨设备续播的数据来源）----
-  let lastSavedAt = 0;
-  let lastSavedSec = -1;
-
-  /** 节流保存：timeupdate 触发很密，别每次都写库 */
-  function scheduleProgressSave() {
-    const now = Date.now();
-    const sec = Math.floor(state.currentTime || 0);
-    if (now - lastSavedAt < 5000 && Math.abs(sec - lastSavedSec) < 5) return;
-    lastSavedAt = now;
-    lastSavedSec = sec;
-    saveProgressNow();
-  }
-
-  /** 立即落一次（切歌 / 暂停 / 关闭页面时调，避免丢最后几秒） */
-  function saveProgressNow() {
-    const c = state.queue[state.index];
-    if (!c) return;
-    const key = c.filePath || c.songId || c.uid;
-    if (!key) return;
-    try {
-      api.v1SaveProgress({
-        songKey: String(key),
-        songId: c.songId ? Number(c.songId) : null,
-        title: c.title, artist: c.artist, album: c.album,
-        positionMs: Math.round((state.currentTime || 0) * 1000),
-        durationMs: Math.round((state.duration || 0) * 1000),
-      });
-    } catch { /* 进度丢失不致命，静默 */ }
-  }
-
   if (typeof Audio === 'undefined') return null;   // SSR / 测试环境
   audioEl = new Audio();
   audioEl.preload = 'metadata';
@@ -172,6 +141,44 @@ async function loadLyrics() {
 }
 
 /** 依据当前时间算出高亮到第几行（歌词行数不多，线性扫足够） */
+/**
+ * 播放进度上报（跨设备续播的数据来源）。
+ *
+ * 为什么定义在模块顶层而不是 init() 里：放在 init/edit 内部时，
+ * 这些函数只被 <audio> 事件回调引用，rollup 会把它们当成「未使用代码」删除，
+ * 但外层 usePlayer() 的 return 仍引用着 —— 运行时报
+ * ReferenceError: saveProgressNow is not defined，整个前端直接白屏。
+ */
+let lastSavedAt = 0;
+let lastSavedSec = -1;
+
+/** 节流保存：timeupdate 触发很密，别每次都写库 */
+function scheduleProgressSave() {
+  const now = Date.now();
+  const sec = Math.floor(state.currentTime || 0);
+  if (now - lastSavedAt < 5000 && Math.abs(sec - lastSavedSec) < 5) return;
+  lastSavedAt = now;
+  lastSavedSec = sec;
+  saveProgressNow();
+}
+
+/** 立即落一次（切歌 / 暂停 / 页面隐藏时调，避免丢最后几秒） */
+export function saveProgressNow() {
+  const c = state.queue[state.index];
+  if (!c) return;
+  const key = c.filePath || c.songId || c.uid;
+  if (!key) return;
+  try {
+    api.v1SaveProgress({
+      songKey: String(key),
+      songId: c.songId ? Number(c.songId) : null,
+      title: c.title, artist: c.artist, album: c.album,
+      positionMs: Math.round((state.currentTime || 0) * 1000),
+      durationMs: Math.round((state.duration || 0) * 1000),
+    });
+  } catch { /* 进度丢失不致命，静默 */ }
+}
+
 function syncLyricIndex() {
   const lines = state.lyrics.lines;
   if (!lines.length) return;
