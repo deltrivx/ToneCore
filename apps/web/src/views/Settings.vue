@@ -97,6 +97,56 @@
 
         <!-- ============ 右列 ============ -->
         <div class="space-y-5">
+      <!-- ============ 账号管理：改账号 / 密码 / 昵称，全部落库持久化 ============ -->
+      <div class="tc-card p-4 space-y-3">
+        <div class="flex items-center justify-between border-b border-white/[0.06] pb-2">
+          <div class="text-sm font-medium text-slate-300">账号</div>
+          <span class="text-[11px] text-slate-600">保存在数据库，重启不丢</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="tc-label">登录账号</label>
+            <input v-model="acct.username" class="tc-input font-mono text-xs" placeholder="登录名" />
+          </div>
+          <div>
+            <label class="tc-label">昵称</label>
+            <input v-model="acct.nickname" class="tc-input text-xs" placeholder="显示名称" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="tc-label">当前密码</label>
+            <input v-model="acct.currentPassword" type="password" class="tc-input text-xs"
+              placeholder="改密码时必填" autocomplete="current-password" />
+          </div>
+          <div>
+            <label class="tc-label">新密码</label>
+            <input v-model="acct.password" type="password" class="tc-input text-xs"
+              placeholder="不改则留空" autocomplete="new-password" />
+          </div>
+        </div>
+
+        <div v-if="acctMsg" class="text-xs" :class="acctMsg.ok ? 'text-emerald-400' : 'text-rose-400'">
+          {{ acctMsg.text }}
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button class="tc-btn-primary text-xs" :disabled="acctBusy" @click="saveAccount">
+            {{ acctBusy ? '保存中…' : '保存账号设置' }}
+          </button>
+          <span class="text-[11px] text-slate-600">改账号名或密码后需要重新登录</span>
+        </div>
+
+        <!-- 挂载路径：把「为什么会持久化」讲清楚 -->
+        <div class="text-[11px] text-slate-600 leading-relaxed border-t border-white/[0.06] pt-2 space-y-0.5">
+          <div>数据库文件：<code class="tc-badge text-[10px]">{{ cfg.dataDir || '/data' }}/tonecore.db</code></div>
+          <div>持久化方式：把宿主目录挂载到容器的 <code class="tc-badge text-[10px]">/data</code>，重建容器数据不丢</div>
+          <div>用户信息、播放进度、播放历史、歌单均存在该库中</div>
+        </div>
+      </div>
+
       <!-- 关于：版本、数据位置、项目信息 -->
       <div class="tc-card p-4 space-y-3">
         <div class="text-sm font-medium text-slate-300 border-b border-ink-700 pb-2">关于</div>
@@ -323,7 +373,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { api } from '../composables/useApi.js';
+import { api, setToken } from '../composables/useApi.js';
 
 const cfg = ref(null);
 const saving = ref(false);
@@ -332,6 +382,47 @@ const saved = ref(false);
 const about = ref(null);
 
 const ICON = '/icon.png';
+
+// ---------- 账号管理 ----------
+const acct = ref({ username: '', nickname: '', currentPassword: '', password: '' });
+const acctBusy = ref(false);
+const acctMsg = ref(null);
+
+async function loadAccount() {
+  const r = await api.v1Me();
+  if (r && r.username) {
+    acct.value.username = r.username;
+    acct.value.nickname = r.nickname || '';
+  }
+}
+
+async function saveAccount() {
+  acctBusy.value = true; acctMsg.value = null;
+  try {
+    const payload = {
+      username: acct.value.username.trim(),
+      nickname: acct.value.nickname,
+      currentPassword: acct.value.currentPassword,
+    };
+    if (acct.value.password) payload.password = acct.value.password;
+    const r = await api.v1UpdateAccount(payload);
+    if (r && r.ok) {
+      const changed = !!acct.value.password || payload.username !== acct.value.username;
+      acctMsg.value = {
+        ok: true,
+        text: changed ? '已保存。账号名或密码已变更，请重新登录。' : '已保存。',
+      };
+      acct.value.currentPassword = '';
+      acct.value.password = '';
+      setToken('');
+      setTimeout(() => window.location.reload(), changed ? 1200 : 0);
+    } else {
+      acctMsg.value = { ok: false, text: (r && (r.error || r.detail)) || '保存失败' };
+    }
+  } catch (e) {
+    acctMsg.value = { ok: false, text: '保存失败：' + e };
+  } finally { acctBusy.value = false; }
+}
 
 const spk = ref(null);
 const spkForm = ref({ monitorEnabled: false, pollInterval: 1, wakeWords: [], deviceIds: [] });
@@ -501,6 +592,7 @@ onMounted(async () => {
   const c = await api.config();
   cfg.value = c;
   try { about.value = await api.health(); } catch { about.value = null; }
+  await loadAccount();
   await loadSpeaker();
   await loadNowPlaying();
 });

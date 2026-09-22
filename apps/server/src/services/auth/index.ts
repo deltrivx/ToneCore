@@ -20,7 +20,22 @@ import { loadConfig } from '../../config.js';
 export interface AuthUser {
   id: number;
   username: string;
+  /** 昵称：界面显示用，可与登录名不同 */
+  nickname: string;
   createdAt: number;
+}
+
+/** 播放进度：跨设备续播的依据 */
+export interface PlayProgress {
+  songId: number | null;
+  title: string;
+  artist: string;
+  album: string;
+  /** 已播放毫秒数 */
+  positionMs: number;
+  /** 曲目总时长（毫秒），用于算百分比 */
+  durationMs: number;
+  updatedAt: number;
 }
 
 interface TokenPayload {
@@ -76,6 +91,9 @@ export class AuthService {
         username      TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         salt          TEXT NOT NULL,
+        nickname      TEXT NOT NULL DEFAULT '',
+        -- Subsonic 令牌认证需要 md5(明文密码+salt)，故用对称加密存一份密码副本（仅此用途）
+        pwd_enc       TEXT NOT NULL DEFAULT '',
         created_at    INTEGER NOT NULL,
         updated_at    INTEGER NOT NULL
       );
@@ -101,39 +119,73 @@ export class AuthService {
         played_at  INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_history_time ON play_history(played_at);
+
+      -- 播放进度：记住每首歌播到哪儿（跨设备续播的依据）
+      CREATE TABLE IF NOT EXISTS play_progress (
+        username    TEXT NOT NULL,
+        song_key    TEXT NOT NULL,
+        song_id     INTEGER,
+        title       TEXT NOT NULL DEFAULT '',
+        artist      TEXT NOT NULL DEFAULT '',
+        album       TEXT NOT NULL DEFAULT '',
+        position_ms INTEGER NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        updated_at  INTEGER NOT NULL,
+        PRIMARY KEY (username, song_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_progress_time ON play_progress(username, updated_at DESC);
+
+      -- 键值设置：界面偏好等（按用户维度持久化）
+      CREATE TABLE IF NOT EXISTS user_settings (
+        username   TEXT NOT NULL,
+        key        TEXT NOT NULL,
+        value      TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (username, key)
+      );
     `);
+
+    // 增量迁移：老库没有 nickname 列（SQLite 的 ADD COLUMN 不幂等，先查 pragma）
+    const ucols = this.db.prepare('PRAGMA table_info(users)').all() as any[];
+    if (!ucols.some((c) => c.name === 'nickname')) {
+      this.db.exec("ALTER TABLE users ADD COLUMN nickname TEXT NOT NULL DEFAULT ''");
+      logger.info('已为 users 表补充 nickname 列');
+    }
+    if (!ucols.some((c) => c.name === 'pwd_enc')) {
+      this.db.exec("ALTER TABLE users ADD COLUMN pwd_enc TEXT NOT NULL DEFAULT ''");
+      logger.info('已为 users 表补充 pwd_enc 列');
+    }
   }
 
-  /** 首次启动写入管理员账号。环境变量存在时用于初始化，之后以库为准 */
+  /**
+   * 首次启动写入管理员账号。
+   *
+   * 口径（按用户要求）：**只用固定的默认值初始化，不被环境变量覆盖**。
+   * 之后一切以数据库为准 —— 用户可在设置页自行修改账号 / 密码 / 昵称。
+   * 这样重启不会把用户改过的凭据刷回默认值。
+   */
   private ensureAdmin(): void {
-    const u = process.env.TONECORE_ADMIN_USER || DEFAULT_USERNAME;
-    const p = process.env.TONECORE_ADMIN_PASSWORD || DEFAULT_PASSWORD;
-    const exist = this.db.prepare('SELECT id FROM users WHERE username = ?').get(u) as any;
-    if (exist) return;
-    // 库里一个用户都没有 → 用（环境变量或默认）创建
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM users').get() as any).c;
-    if (count > 0) {
-      logger.info({ user: u }, '已有其它账号，跳过默认管理员创建');
-      return;
-    }
-    this.createUser(u, p);
-    logger.info(
-      { user: u, fromEnv: !!(process.env.TONECORE_ADMIN_USER || process.env.TONECORE_ADMIN_PASSWORD) },
-      '已创建初始管理员账号',
-    );
+    if (count > 0) return;
+    this.createUser(DEFAULT_USERNAME, DEFAULT_PASSWORD, '管理员');
+    logger.info({ user: DEFAULT_USERNAME }, '已创建初始管理员账号（默认，可在设置页修改）');
   }
 
   private hash(password: string, salt: string): string {
     return crypto.scryptSync(password, salt, 64).toString('hex');
   }
 
-  createUser(username: string, password: string): AuthUser {
+  createUser(username: string, password: string, nickname = ''): AuthUser {
     const salt = crypto.randomBytes(16).toString('hex');
     const now = Date.now();
     const info = this.db.prepare(
-      'INSERT INTO users (username, password_hash, salt, created_at, updated_at) VALUES (?,?,?,?,?)',
-    ).run(username, this.hash(password, salt), salt, now, now);
-    return { id: Number(info.lastInsertRowid), username, createdAt: now };
+      'INSERT INTO users (username, password_hash, salt, nickname, pwd_enc, created_at, updated_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(username, this.hash(password, salt), salt, nickname || username, this.encryptPassword(password), now, now);
+    return { id: Number(info.lastInsertRowid), username, nickname: nickname || username, createdAt: now };
+  }
+
+  private toUser(row: any): AuthUser {
+    return { id: row.id, username: row.username, nickname: row.nickname || row.username, createdAt: row.created_at };
   }
 
   /** 校验账号密码；成功返回用户，失败返回 null */
@@ -144,17 +196,117 @@ export class AuthService {
     const want = Buffer.from(row.password_hash, 'hex');
     // 定长比较，避免时序侧信道
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) return null;
-    return { id: row.id, username: row.username, createdAt: row.created_at };
+    return this.toUser(row);
+  }
+
+  /** 仅校验密码（不改任何东西），供 Subsonic 的 p= 明文/enc: 认证使用 */
+  checkPassword(username: string, password: string): AuthUser | null {
+    return this.verify(username, password);
+  }
+
+  /**
+   * Subsonic 令牌认证：客户端给的是 md5(password + salt)，服务端手上只有密码哈希，
+   * 无法反推。但要真实验证，必须能算出 md5(明文密码 + salt)。
+   *
+   * 做法：把「明文密码的 md5 中间态」也存一份（`pwd_md5`），
+   * 校验时算 md5(存着的明文md5? 不行 —— md5(pw+salt) 无法由 md5(pw) 推出)。
+   * 因此这里必须存明文等价物。折中且安全的做法：
+   * 用可逆的对称加密（AES-256-GCM）保存密码副本，密钥来自 JWT secret，
+   * 仅用于 Subsonic 令牌校验；主认证仍走 scrypt 哈希，不依赖这份副本。
+   */
+  verifyTokenStyle(username: string, token: string, salt: string): AuthUser | null {
+    const row = this.db.prepare('SELECT * FROM users WHERE username = ?').get(username) as any;
+    if (!row) return null;
+    const plain = this.decryptPassword(row.pwd_enc);
+    if (!plain) return null;
+    const expect = crypto.createHash('md5').update(plain + salt).digest('hex');
+    if (expect !== String(token).toLowerCase()) return null;
+    return this.toUser(row);
+  }
+
+  /** 用 JWT 密钥派生的对称密钥加解密「Subsonic 用密码副本」 */
+  private pwdKey(): Buffer {
+    return crypto.createHash('sha256').update(this.secret + '|subsonic-pwd').digest();
+  }
+
+  private encryptPassword(plain: string): string {
+    const iv = crypto.randomBytes(12);
+    const c = crypto.createCipheriv('aes-256-gcm', this.pwdKey(), iv);
+    const enc = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
+    return Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64');
+  }
+
+  private decryptPassword(blob: string | null): string | null {
+    if (!blob) return null;
+    try {
+      const raw = Buffer.from(blob, 'base64');
+      const iv = raw.subarray(0, 12);
+      const tag = raw.subarray(12, 28);
+      const data = raw.subarray(28);
+      const dec = crypto.createDecipheriv('aes-256-gcm', this.pwdKey(), iv);
+      dec.setAuthTag(tag);
+      return Buffer.concat([dec.update(data), dec.final()]).toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  /** 修改昵称 */
+  setNickname(username: string, nickname: string): boolean {
+    const r = this.db.prepare('UPDATE users SET nickname = ?, updated_at = ? WHERE username = ?')
+      .run(nickname || username, Date.now(), username);
+    return r.changes > 0;
+  }
+
+  /**
+   * 修改账号名（登录名）。
+   * 同步迁移所有以旧名为主键的数据，避免「改了名，历史/进度全丢」。
+   */
+  setUsername(oldName: string, newName: string): { ok: boolean; error?: string } {
+    const n = String(newName || '').trim();
+    if (!n) return { ok: false, error: '新账号名不能为空' };
+    if (n === oldName) return { ok: true };
+    const dup = this.db.prepare('SELECT id FROM users WHERE username = ?').get(n) as any;
+    if (dup) return { ok: false, error: '该账号名已被占用' };
+    try {
+      const tx = this.db.transaction(() => {
+        this.db.prepare('UPDATE users SET username = ?, updated_at = ? WHERE username = ?').run(n, Date.now(), oldName);
+        this.db.prepare('UPDATE auth_tokens SET username = ? WHERE username = ?').run(n, oldName);
+        this.db.prepare('UPDATE play_progress SET username = ? WHERE username = ?').run(n, oldName);
+        this.db.prepare('UPDATE user_settings SET username = ? WHERE username = ?').run(n, oldName);
+      });
+      tx();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 200) };
+    }
   }
 
   /** 修改密码（改完吊销该用户所有 token） */
   setPassword(username: string, password: string): boolean {
     const salt = crypto.randomBytes(16).toString('hex');
     const r = this.db.prepare(
-      'UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE username = ?',
-    ).run(this.hash(password, salt), salt, Date.now(), username);
+      'UPDATE users SET password_hash = ?, salt = ?, pwd_enc = ?, updated_at = ? WHERE username = ?',
+    ).run(this.hash(password, salt), salt, this.encryptPassword(password), Date.now(), username);
     if (r.changes > 0) this.revokeAll(username);
     return r.changes > 0;
+  }
+
+  /** 一次性改账号资料（账号名 / 密码 / 昵称） */
+  updateProfile(oldName: string, patch: { username?: string; password?: string; nickname?: string }):
+    { ok: boolean; error?: string; username?: string } {
+    let current = oldName;
+    if (patch.username && patch.username !== oldName) {
+      const r = this.setUsername(oldName, patch.username);
+      if (!r.ok) return r;
+      current = patch.username.trim();
+    }
+    if (typeof patch.nickname === 'string') this.setNickname(current, patch.nickname.trim());
+    if (patch.password) {
+      if (patch.password.length < 4) return { ok: false, error: '密码至少 4 位' };
+      this.setPassword(current, patch.password);
+    }
+    return { ok: true, username: current };
   }
 
   private b64u(b: Buffer | string): string {
@@ -245,13 +397,12 @@ export class AuthService {
     if (!m) return null;
     const p = this.verifyToken(m[1], 'access');
     if (!p) return null;
-    const row = this.db.prepare('SELECT id, username, created_at FROM users WHERE username = ?').get(p.sub) as any;
-    return row ? { id: row.id, username: row.username, createdAt: row.created_at } : null;
+    const row = this.db.prepare('SELECT * FROM users WHERE username = ?').get(p.sub) as any;
+    return row ? this.toUser(row) : null;
   }
 
   listUsers(): AuthUser[] {
-    return (this.db.prepare('SELECT id, username, created_at FROM users ORDER BY id').all() as any[])
-      .map((r) => ({ id: r.id, username: r.username, createdAt: r.created_at }));
+    return (this.db.prepare('SELECT * FROM users ORDER BY id').all() as any[]).map((r) => this.toUser(r));
   }
 
   /** 记录一次播放（播放历史 / 最近播放） */
@@ -265,5 +416,85 @@ export class AuthService {
     return this.db.prepare(
       'SELECT id, song_id AS songId, title, artist, album, source, played_at AS playedAt FROM play_history ORDER BY played_at DESC LIMIT ?',
     ).all(Math.max(1, Math.min(500, limit)));
+  }
+
+  // ==================== 播放进度（跨设备续播） ====================
+
+  /** 进度用「路径或 id」做键：同一首歌无论从哪个入口都应命中同一条 */
+  private progressKey(songKey: string | number): string {
+    return String(songKey);
+  }
+
+  saveProgress(username: string, p: {
+    songKey: string | number; songId?: number | null;
+    title?: string; artist?: string; album?: string;
+    positionMs: number; durationMs?: number;
+  }): void {
+    this.db.prepare(`
+      INSERT INTO play_progress (username, song_key, song_id, title, artist, album, position_ms, duration_ms, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(username, song_key) DO UPDATE SET
+        position_ms = excluded.position_ms,
+        duration_ms = excluded.duration_ms,
+        song_id     = excluded.song_id,
+        title       = excluded.title,
+        artist      = excluded.artist,
+        album       = excluded.album,
+        updated_at  = excluded.updated_at
+    `).run(
+      username, this.progressKey(p.songKey), p.songId ?? null,
+      p.title || '', p.artist || '', p.album || '',
+      Math.max(0, Math.round(p.positionMs || 0)),
+      Math.max(0, Math.round(p.durationMs || 0)),
+      Date.now(),
+    );
+  }
+
+  /** 取某首歌的进度（用于「上次播到哪儿」） */
+  getProgress(username: string, songKey: string | number): PlayProgress | null {
+    const r = this.db.prepare('SELECT * FROM play_progress WHERE username = ? AND song_key = ?')
+      .get(username, this.progressKey(songKey)) as any;
+    if (!r) return null;
+    return {
+      songId: r.song_id, title: r.title, artist: r.artist, album: r.album,
+      positionMs: r.position_ms, durationMs: r.duration_ms, updatedAt: r.updated_at,
+    };
+  }
+
+  /** 最近播放（带进度）—— 客户端启动时用它恢复「继续收听」 */
+  recentProgress(username: string, limit = 20): PlayProgress[] {
+    return (this.db.prepare(
+      'SELECT * FROM play_progress WHERE username = ? ORDER BY updated_at DESC LIMIT ?',
+    ).all(username, Math.max(1, Math.min(200, limit))) as any[]).map((r) => ({
+      songId: r.song_id, title: r.title, artist: r.artist, album: r.album,
+      positionMs: r.position_ms, durationMs: r.duration_ms, updatedAt: r.updated_at,
+    }));
+  }
+
+  clearProgress(username: string, songKey: string | number): void {
+    this.db.prepare('DELETE FROM play_progress WHERE username = ? AND song_key = ?')
+      .run(username, this.progressKey(songKey));
+  }
+
+  // ==================== 用户设置（KV） ====================
+
+  getSetting(username: string, key: string): string | null {
+    const r = this.db.prepare('SELECT value FROM user_settings WHERE username = ? AND key = ?')
+      .get(username, key) as any;
+    return r ? r.value : null;
+  }
+
+  setSetting(username: string, key: string, value: string): void {
+    this.db.prepare(`
+      INSERT INTO user_settings (username, key, value, updated_at) VALUES (?,?,?,?)
+      ON CONFLICT(username, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(username, key, String(value ?? ''), Date.now());
+  }
+
+  allSettings(username: string): Record<string, string> {
+    const rows = this.db.prepare('SELECT key, value FROM user_settings WHERE username = ?').all(username) as any[];
+    const out: Record<string, string> = {};
+    for (const r of rows) out[r.key] = r.value;
+    return out;
   }
 }

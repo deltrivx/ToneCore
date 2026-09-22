@@ -365,6 +365,11 @@ export class Library {
     };
   }
 
+  /** 取全部曲目（Subsonic 兼容层要把曲库聚合成 歌手→专辑→歌曲 的三级结构） */
+  listAll(limit = 100000, offset = 0): LibrarySong[] {
+    return this.list(limit, offset);
+  }
+
   /** 按 id 精确取一首（SongLoft 兼容层按 id 访问时要） */
   findById(id: number): LibrarySong | null {
     const r = this.db.prepare('SELECT * FROM songs WHERE id = ?').get(id) as any;

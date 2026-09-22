@@ -52,6 +52,37 @@ let audioEl = null;
 
 function ensureAudio() {
   if (audioEl) return audioEl;
+  // ---- 播放进度上报（跨设备续播的数据来源）----
+  let lastSavedAt = 0;
+  let lastSavedSec = -1;
+
+  /** 节流保存：timeupdate 触发很密，别每次都写库 */
+  function scheduleProgressSave() {
+    const now = Date.now();
+    const sec = Math.floor(state.currentTime || 0);
+    if (now - lastSavedAt < 5000 && Math.abs(sec - lastSavedSec) < 5) return;
+    lastSavedAt = now;
+    lastSavedSec = sec;
+    saveProgressNow();
+  }
+
+  /** 立即落一次（切歌 / 暂停 / 关闭页面时调，避免丢最后几秒） */
+  function saveProgressNow() {
+    const c = state.queue[state.index];
+    if (!c) return;
+    const key = c.filePath || c.songId || c.uid;
+    if (!key) return;
+    try {
+      api.v1SaveProgress({
+        songKey: String(key),
+        songId: c.songId ? Number(c.songId) : null,
+        title: c.title, artist: c.artist, album: c.album,
+        positionMs: Math.round((state.currentTime || 0) * 1000),
+        durationMs: Math.round((state.duration || 0) * 1000),
+      });
+    } catch { /* 进度丢失不致命，静默 */ }
+  }
+
   if (typeof Audio === 'undefined') return null;   // SSR / 测试环境
   audioEl = new Audio();
   audioEl.preload = 'metadata';
@@ -59,13 +90,14 @@ function ensureAudio() {
   audioEl.addEventListener('timeupdate', () => {
     state.currentTime = audioEl.currentTime || 0;
     syncLyricIndex();
+    scheduleProgressSave();
   });
   audioEl.addEventListener('durationchange', () => {
     state.duration = Number.isFinite(audioEl.duration) ? audioEl.duration : 0;
   });
   audioEl.addEventListener('waiting', () => { state.loading = true; });
   audioEl.addEventListener('playing', () => { state.loading = false; state.playing = true; });
-  audioEl.addEventListener('pause', () => { state.playing = false; });
+  audioEl.addEventListener('pause', () => { state.playing = false; saveProgressNow(); });
   audioEl.addEventListener('ended', () => { onEnded(); });
   audioEl.addEventListener('error', () => {
     state.loading = false;
@@ -301,7 +333,8 @@ export function usePlayer() {
   }
 
   return {
-    state, current, coverUrl, hasNext, REPEAT_META,
+    state,
+    saveProgressNow, current, coverUrl, hasNext, REPEAT_META,
     init, playList, append, play, pause, toggle, next, prev, jump, seek,
     setVolume, cycleRepeat, removeAt, clear, toggleExpand, refresh,
     openSheet, closeSheet, toggleSheet,

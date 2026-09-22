@@ -204,4 +204,78 @@ export async function registerSongLoftRoutes(app: FastifyInstance, d: Deps): Pro
     if (!id) return reply.code(400).send({ detail: 'invalid_request', error: '缺少 song_id' });
     return reply.redirect(`/api/library/${id}/stream`);
   });
+  // ==================== 账号管理（设置页用） ====================
+  app.get('/api/v1/account', async (req, reply) => {
+    const u = requireUser(d, req, reply);
+    if (!u) return;
+    return { id: u.id, username: u.username, nickname: u.nickname, createdAt: u.createdAt };
+  });
+
+  /** 一次改完账号名 / 密码 / 昵称；改完吊销旧令牌，前端需重新登录 */
+  app.post('/api/v1/account', async (req, reply) => {
+    const u = requireUser(d, req, reply);
+    if (!u) return;
+    const b = (req.body || {}) as any;
+    const oldPwd = String(b.currentPassword || '');
+    // 改密码必须验证当前密码，避免令牌被盗后直接改掉
+    if (b.password && !d.auth.checkPassword(u.username, oldPwd)) {
+      return reply.code(403).send({ detail: 'invalid_password', error: '当前密码不正确' });
+    }
+    const r = d.auth.updateProfile(u.username, {
+      username: b.username ? String(b.username).trim() : undefined,
+      nickname: typeof b.nickname === 'string' ? b.nickname : undefined,
+      password: b.password ? String(b.password) : undefined,
+    });
+    if (!r.ok) return reply.code(400).send({ detail: 'update_failed', error: r.error });
+    return { ok: true, username: r.username };
+  });
+
+  // ==================== 播放进度 / 最近播放（跨设备续播） ====================
+  app.get('/api/v1/progress', async (req, reply) => {
+    const u = requireUser(d, req, reply);
+    if (!u) return;
+    const q = req.query as any;
+    const songKey = q.songKey ?? q.songId;
+    if (songKey !== undefined) {
+      return { progress: d.auth.getProgress(u.username, songKey as string) };
+    }
+    return { entries: d.auth.recentProgress(u.username, Number(q.limit) || 20) };
+  });
+
+  app.post('/api/v1/progress', async (req, reply) => {
+    const u = requireUser(d, req, reply);
+    if (!u) return;
+    const b = (req.body || {}) as any;
+    const songKey = b.songKey ?? b.songId;
+    if (songKey === undefined) return reply.code(400).send({ detail: 'invalid_request', error: '缺少 songKey' });
+    d.auth.saveProgress(u.username, {
+      songKey: String(songKey), songId: b.songId ?? null,
+      title: b.title, artist: b.artist, album: b.album,
+      positionMs: Number(b.positionMs) || 0, durationMs: Number(b.durationMs) || 0,
+    });
+    return { ok: true };
+  });
+
+  app.delete('/api/v1/progress', async (req, reply) => {
+    const u = requireUser(d, req, reply);
+    if (!u) return;
+    const q = req.query as any;
+    if (q.songKey !== undefined) d.auth.clearProgress(u.username, String(q.songKey));
+    return { ok: true };
+  });
+
+  // ==================== 用户设置（KV 持久化） ====================
+  app.get('/api/v1/settings', async (req, reply) => {
+    const u = requireUser(d, req, reply);
+    if (!u) return;
+    return { settings: d.auth.allSettings(u.username) };
+  });
+
+  app.post('/api/v1/settings', async (req, reply) => {
+    const u = requireUser(d, req, reply);
+    if (!u) return;
+    const b = (req.body || {}) as any;
+    for (const [k, v] of Object.entries(b || {})) d.auth.setSetting(u.username, k, String(v));
+    return { ok: true };
+  });
 }

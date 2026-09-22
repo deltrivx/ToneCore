@@ -14,6 +14,7 @@ import type { PlayerService, QueueItem, RepeatMode } from '../services/player/in
 import type { LyricsService } from '../services/player/lyrics.js';
 import type { AuthService } from '../services/auth/index.js';
 import { registerSongLoftRoutes } from './songloft.js';
+import { registerSubsonicRoutes } from './subsonic.js';
 
 export interface Deps {
   engine: SourceEngine;
@@ -56,6 +57,9 @@ function normalizeQueueItem(s: any, _i: number): QueueItem {
 export async function registerRoutes(app: FastifyInstance, d: Deps) {
   // ---------- SongLoft 兼容层（/api/v1/*）：供外部设备按 SongLoft 方式连接 ----------
   await registerSongLoftRoutes(app, d);
+
+  // ---------- Subsonic 兼容层（/rest/*）：自托管音乐事实标准，箭头音乐/Feishin/Sonixd 等可直接连 ----------
+  await registerSubsonicRoutes(app, d);
 
   // ---------- 健康检查 ----------
   app.get('/api/health', async () => ({

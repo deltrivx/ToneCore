@@ -37,6 +37,12 @@ export const api = {
   v1Logout: () => req('/api/v1/auth/logout', { method: 'POST' }),
   v1Me:     () => req('/api/v1/me'),
   v1Health: () => req('/api/v1/health'),
+  v1UpdateAccount: (patch) => req('/api/v1/account', { method: 'POST', body: patch }),
+  // 播放进度：跨设备续播
+  v1GetProgress: (songKey) => req('/api/v1/progress' + (songKey !== undefined ? '?songKey=' + encodeURIComponent(songKey) : '')),
+  v1SaveProgress: (p) => req('/api/v1/progress', { method: 'POST', body: p }),
+  v1Settings: () => req('/api/v1/settings'),
+  v1SaveSettings: (kv) => req('/api/v1/settings', { method: 'POST', body: kv }),
   v1Version:() => req('/api/v1/version'),
   health:      () => req('/api/health'),
   config:      () => req('/api/config'),
