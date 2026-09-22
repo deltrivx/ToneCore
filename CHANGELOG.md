@@ -21,6 +21,48 @@
 
 ---
 
+## [0.11.0] - 2026-09-23
+
+新增 **Subsonic REST API 兼容层**（第三方 App 可直接连接）、账号自助管理、播放进度持久化。
+
+### 新增
+
+- **Subsonic REST API 兼容层 `/rest/*`**。Subsonic 是自托管音乐领域的事实标准，
+  实现它之后，**箭头音乐（amcfy-music）、Feishin、Sonixd、Substreamer** 等
+  一大批 Subsonic 客户端可直接连接本中枢。
+  - 认证同时支持两种：`p=<明文密码>` 或 `p=enc:<hex>`，以及
+    `t=md5(密码+salt) & s=<salt>`（现代客户端默认用令牌方式）。
+  - 已实现：`ping`、`getLicense`、`getMusicFolders`、`getArtists`、`getIndexes`、
+    `getAlbumList` / `getAlbumList2`、`getAlbum`、`getArtist`、`search2` / `search3`、
+    `stream`、`download`、`getCoverArt`、`getLyrics`、`getLyricsBySongId`、`getSong`、
+    `scrobble`、`getNowPlaying`、`getPlayCounts`、`getPlaylists`、`getPlaylist`、
+    `createPlaylist`、`updatePlaylist`、`deletePlaylist`、`getStarred` / `getStarred2`、
+    `star` / `unstar`、`setRating`、`getRandomSongs`、`getSongsByGenre`、`getGenres`、
+    `getScanStatus` / `startScan`。
+  - 响应采用 `subsonic-response` 信封；`.view` 后缀与无后缀两种路径都接受。
+  - 说明：只输出 JSON（不发 XML）。绝大多数现代客户端支持 `f=json`；
+    纯 XML 客户端会连不上，这是有意的取舍。
+- **账号自助管理**：新增昵称；支持修改登录账号 / 密码 / 昵称。
+  改密码需验证当前密码；**改登录名时会同步迁移令牌、播放进度与用户设置**
+  （避免「改了名，历史全丢」）。
+- **播放进度持久化（跨设备续播）**：新增 `play_progress` 表，
+  前端播放时每 5 秒节流上报、暂停 / 切歌时立即落库；
+  通过 Subsonic 的 `scrobble` 或 `/api/v1/progress` 读写。
+- **用户设置持久化**：新增 `user_settings` 表（按用户维度的 KV）。
+- 设置页新增「账号」卡片（账号 / 昵称 / 当前密码 / 新密码），
+  并显示数据库文件路径与持久化说明（挂载目录 → 容器 `/data`）。
+
+### 变更
+
+- **取消环境变量覆盖账号**（原 `TONECORE_ADMIN_USER` / `TONECORE_ADMIN_PASSWORD`）：
+  改为**固定默认值初始化一次，之后一切以数据库为准**，用户可在设置页自行修改。
+  这样重启不会把改过的凭据刷回默认值。容器模板中的对应变量已移除。
+- 数据库 `users` 表新增 `nickname`、`pwd_enc` 列（老库自动增量迁移）。
+  `pwd_enc` 是为满足 Subsonic 令牌认证（需要 `md5(明文密码+salt)`）而存的
+  对称加密副本，主认证仍走 scrypt 哈希，不依赖该副本。
+
+---
+
 ## [0.10.0] - 2026-09-23
 
 新增账号认证与 SongLoft 兼容层（第一阶段）：外部设备可按 SongLoft 方式连接本中枢。
