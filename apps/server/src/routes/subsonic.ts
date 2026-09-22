@@ -24,6 +24,17 @@ import type { Deps } from './index.js';
  * 我们只实现 JSON（不发 XML），并在信封里如实声明 version，
  * 让客户端按自身能力选择；对纯 XML 客户端会连不上 —— 这是已知取舍。
  */
+/**
+ * 把曲库相对路径转成安全的 URL 路径。
+ *
+ * 关键：**不能整串 encodeURIComponent** —— 它会把 '/' 编成 %2F，
+ * 而 Fastify 的通配路由 /stream/* 不匹配含 %2F 的路径，直接 404/502。
+ * 必须逐段编码、保留 '/' 作为分隔符。
+ */
+function encodeRelPath(p: string): string {
+  return String(p || '').split('/').map(encodeURIComponent).join('/');
+}
+
 export async function registerSubsonicRoutes(app: FastifyInstance, d: Deps): Promise<void> {
   const API_VERSION = '1.16.1';
 
@@ -298,7 +309,7 @@ export async function registerSubsonicRoutes(app: FastifyInstance, d: Deps): Pro
     if (!song) return fail(reply, 70, 'Song not found');
     // 真实流端点是 /stream/<相对路径>（支持 Range —— 客户端拖进度依赖它）。
     // 注意不是 /api/library/<id>/stream（那个路径不存在，会 404）。
-    return reply.redirect('/stream/' + encodeURIComponent(song.filePath));
+    return reply.redirect('/stream/' + encodeRelPath(song.filePath));
   });
 
   /** 下载（部分客户端「离线缓存」走这个） */
@@ -307,7 +318,7 @@ export async function registerSubsonicRoutes(app: FastifyInstance, d: Deps): Pro
     if (!id) return fail(reply, 10, 'Required parameter is missing: id');
     const song = d.lib.findById(id);
     if (!song) return fail(reply, 70, 'Song not found');
-    return reply.redirect('/stream/' + encodeURIComponent(song.filePath));
+    return reply.redirect('/stream/' + encodeRelPath(song.filePath));
   });
 
   // ==================== 封面 / 歌词 ====================

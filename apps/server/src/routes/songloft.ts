@@ -32,6 +32,17 @@ function requireUser(d: Deps, req: FastifyRequest, reply: FastifyReply) {
   return u;
 }
 
+/**
+ * 把曲库相对路径转成安全的 URL 路径。
+ *
+ * 关键：**不能整串 encodeURIComponent** —— 它会把 '/' 编成 %2F，
+ * 而 Fastify 的通配路由 /stream/* 不匹配含 %2F 的路径，直接 404/502。
+ * 必须逐段编码、保留 '/' 作为分隔符。
+ */
+function encodeRelPath(p: string): string {
+  return String(p || '').split('/').map(encodeURIComponent).join('/');
+}
+
 export async function registerSongLoftRoutes(app: FastifyInstance, d: Deps): Promise<void> {
   // ==================== 认证 ====================
   app.post('/api/v1/auth/login', async (req, reply) => {
@@ -202,7 +213,10 @@ export async function registerSongLoftRoutes(app: FastifyInstance, d: Deps): Pro
     const q = req.query as any;
     const id = Number(q.song_id || q.id || 0);
     if (!id) return reply.code(400).send({ detail: 'invalid_request', error: '缺少 song_id' });
-    return reply.redirect(`/api/library/${id}/stream`);
+    const song = d.lib.findById(id);
+    if (!song) return reply.code(404).send({ detail: 'not_found', error: '曲目不存在' });
+    // 与 Subsonic 层一致：真实流端点是 /stream/<相对路径>（需逐段编码）
+    return reply.redirect('/stream/' + encodeRelPath(song.filePath));
   });
   // ==================== 账号管理（设置页用） ====================
   app.get('/api/v1/account', async (req, reply) => {
