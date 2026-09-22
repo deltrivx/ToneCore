@@ -141,6 +141,9 @@ export class SourceLoader {
       let settled = 0;
       let done = false;
       let timer: NodeJS.Timeout | null = null;
+      // 已经给出结论的脚本（成功/失败/无 url）。
+      // 用来在整体超时时区分「谁真的没应答」，避免一个慢脚本连坐拖垮同批其它脚本。
+      const settledNames = new Set<string>();
 
       const finish = (result: SongUrl | null) => {
         if (done) return;
@@ -149,14 +152,18 @@ export class SourceLoader {
         resolve(result);
       };
 
-      // 硬超时：到点必须返回，避免上游静默丢弃导致请求悬挂
+      // 硬超时：到点必须返回，避免上游静默丢弃导致请求悬挂。
+      // 只惩罚到点仍未应答的脚本 —— 已经报过成功/失败的不再重复挂账，
+      // 否则一次超时会把整批脚本的健康分一起打下去，进而集体熔断。
       timer = setTimeout(() => {
-        logger.warn({ platform, title: song.title, timeoutMs }, '取链整体超时，放弃本平台');
-        for (const s of list) this.health.recordFailure(s.name);
+        const silent = list.filter((s) => !settledNames.has(s.name)).map((s) => s.name);
+        for (const n of silent) this.health.recordFailure(n);
+        logger.warn({ platform, title: song.title, timeoutMs, silent }, '取链整体超时，放弃本平台');
         finish(null);
       }, timeoutMs);
 
-      const onSettled = () => {
+      const onSettled = (name: string) => {
+        settledNames.add(name);
         if (++settled >= list.length) finish(null);
       };
 
@@ -176,12 +183,12 @@ export class SourceLoader {
           } else {
             this.health.recordFailure(s.name);
             logger.debug({ script: s.name, title: song.title }, '脚本返回无有效 url');
-            onSettled();
+            onSettled(s.name);
           }
         }).catch((e) => {
           this.health.recordFailure(s.name);
           logger.debug({ script: s.name, title: song.title, err: String(e).slice(0, 100) }, '取链失败');
-          onSettled();
+          onSettled(s.name);
         });
       }
     });

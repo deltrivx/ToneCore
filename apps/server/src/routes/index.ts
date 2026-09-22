@@ -79,6 +79,18 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   });
   app.post('/api/library/scan', async () => d.lib.scan());
 
+  // 磁盘上已被外部删除、但索引里还残留的曲目（只读检查，不改数据）
+  app.get('/api/library/missing', async () => {
+    const gone = d.lib.missingSongs();
+    return { ok: true, missing: gone.length, songs: gone };
+  });
+
+  // 清理这些残留条目（连带清出歌单里的失效曲目）
+  app.post('/api/library/prune', async () => {
+    const r = d.lib.pruneMissing();
+    return { ...r, message: r.removed ? `已清理 ${r.removed} 首失效曲目` : '没有失效曲目' };
+  });
+
   // 删除曲库条目（音频与同名 .lrc 一并移入回收站，不做硬删）
   app.post('/api/library/delete', async (req) => {
     const b = (req.body || {}) as any;

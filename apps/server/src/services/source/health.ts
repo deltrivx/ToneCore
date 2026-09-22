@@ -3,6 +3,16 @@ import path from 'node:path';
 import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 
+/**
+ * 熔断后的冷却窗口：超过这么久没再失败，就清掉连续失败计数，给脚本一次探活机会。
+ *
+ * 为什么必须有这个窗口：熔断一旦触发，脚本就被 `forPlatform()` 过滤掉，
+ * 而 consecutiveFailures 只在「成功」时清零 —— 于是脚本再也没有被调用的机会，
+ * 计数永远降不下来，形成**永久锁死**。实测正是这个机制让「单脚本隔离测试能出链、
+ * 集成环境却永远 0 成功」：早期一次失败潮把脚本冻住，此后再没被选中过。
+ */
+const TRIP_COOLDOWN_MS = 10 * 60 * 1000;
+
 export interface ScriptHealth {
   /** 脚本名 */
   name: string;
@@ -134,15 +144,27 @@ export class HealthTracker {
   }
 
   /**
+   * 半开探活：熔断冷却窗口过后清掉连续失败计数，让脚本能被重新选中一次。
+   * 只动计数不动成功/失败历史，历史仍用于算成功率，不影响排序公平性。
+   */
+  private maybeRecover(h: ScriptHealth): void {
+    if (h.consecutiveFailures > 0 && Date.now() - (h.lastFailureAt || 0) > TRIP_COOLDOWN_MS) {
+      h.consecutiveFailures = 0;
+      this.dirty = true;
+    }
+  }
+
+  /**
    * 健康分（越高越好）。
    * 规则：
    *   - 无记录 → 100（给新脚本机会）
-   *   - 连续失败 ≥ 3 → 熔断（返回 -1，跳过）
+   *   - 连续失败 ≥ 3 → 熔断（返回 -1，跳过）；但冷却窗口过后会探活复出
    *   - 否则 = 成功率 × 100 - 平均耗时(ms)/100
    */
   score(name: string): number {
     const h = this.map.get(name);
     if (!h) return 100;
+    this.maybeRecover(h);
     if (h.consecutiveFailures >= 3) return -1;   // 熔断
     const total = h.success + h.failure;
     if (total === 0) return 100;
@@ -159,8 +181,11 @@ export class HealthTracker {
     });
   }
 
-  /** 熔断状态 */
+  /** 熔断状态（冷却窗口过后自动探活，不再永久锁死） */
   isTripped(name: string): boolean {
-    return (this.map.get(name)?.consecutiveFailures ?? 0) >= 3;
+    const h = this.map.get(name);
+    if (!h) return false;
+    this.maybeRecover(h);
+    return h.consecutiveFailures >= 3;
   }
 }

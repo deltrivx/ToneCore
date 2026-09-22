@@ -25,6 +25,8 @@ export const api = {
   libraryStats: () => req('/api/library/stats'),
   libraryDelete: (filePath) => req('/api/library/delete', { method: 'POST', body: { filePath } }),
   scan:        () => req('/api/library/scan', { method: 'POST' }),
+  libraryMissing: () => req('/api/library/missing'),
+  libraryPrune:  () => req('/api/library/prune', { method: 'POST' }),
 
   sources:     () => req('/api/sources'),
   sourcesAll:  () => req('/api/sources/all'),

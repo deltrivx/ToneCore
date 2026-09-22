@@ -314,6 +314,57 @@ export class Library {
     return (this.db.prepare('SELECT COUNT(*) AS c FROM songs').get() as any).c;
   }
 
+  /**
+   * 找出「索引里有、磁盘上已经没了」的曲目。
+   * 用户在 ToneCore 之外直接用资源管理器删掉 mp3 时，索引不会自动同步，
+   * 于是曲库里留下点不开的幽灵条目 —— 这就是它们的来源。
+   */
+  missingSongs(): { id: number; title: string; artist: string; filePath: string }[] {
+    const cfg = loadConfig();
+    const rows = this.db.prepare('SELECT id, title, artist, file_path FROM songs').all() as any[];
+    const gone: { id: number; title: string; artist: string; filePath: string }[] = [];
+    for (const r of rows) {
+      const abs = path.resolve(cfg.musicDir, r.file_path);
+      if (!fs.existsSync(abs)) gone.push({ id: r.id, title: r.title, artist: r.artist, filePath: r.file_path });
+    }
+    return gone;
+  }
+
+  /**
+   * 清理已在磁盘上消失的曲目。
+   *
+   * 必须同时清 `playlist_items`：这些歌可能还在某个歌单里，
+   * 只删 songs 会让歌单留下永远播放不了的条目（歌曲 JOIN 不到）。
+   */
+  pruneMissing(): { ok: boolean; removed: number; files: string[]; playlistsAffected: number } {
+    const gone = this.missingSongs();
+    if (!gone.length) return { ok: true, removed: 0, files: [], playlistsAffected: 0 };
+
+    // 先记下受影响的歌单，删完要重算它们的封面
+    const ids = gone.map((g) => g.id);
+    const marks = ids.map(() => '?').join(',');
+    const affected = this.db
+      .prepare(`SELECT DISTINCT playlist_id AS pid FROM playlist_items WHERE song_id IN (${marks})`)
+      .all(...ids) as any[];
+
+    const delSong = this.db.prepare('DELETE FROM songs WHERE id = ?');
+    const delItems = this.db.prepare('DELETE FROM playlist_items WHERE song_id = ?');
+    const tx = this.db.transaction((list: number[]) => {
+      for (const id of list) { delItems.run(id); delSong.run(id); }
+    });
+    tx(ids);
+
+    for (const a of affected) this.updatePlaylistCover(a.pid);
+
+    logger.info({ removed: gone.length, playlists: affected.length }, '已清理磁盘上消失的曲目');
+    return {
+      ok: true,
+      removed: gone.length,
+      files: gone.map((g) => g.filePath),
+      playlistsAffected: affected.length,
+    };
+  }
+
   /** 按路径精确取一首（单首刮削时用） */
   findByPath(relPath: string): LibrarySong | null {
     const r = this.db.prepare('SELECT * FROM songs WHERE file_path = ?').get(relPath) as any;

@@ -36,6 +36,19 @@
         </div>
       </div>
 
+      <!-- 失效曲目：文件被外部删除，索引里仍有残留 -->
+      <div v-if="missingCount > 0"
+        class="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/[0.06]">
+        <span class="text-sm text-amber-300">
+          ⚠ 有 <b class="font-mono">{{ missingCount }}</b> 首曲目在磁盘上已不存在（文件被外部删除），仍残留在曲库中。
+        </span>
+        <button class="tc-btn text-xs border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+          :disabled="pruning" @click="prune">
+          {{ pruning ? '清理中…' : '清理失效曲目' }}
+        </button>
+        <button class="tc-icon-btn w-6 h-6 text-slate-500" title="重新检查" @click="checkMissing">↻</button>
+      </div>
+
       <!-- 统计卡 -->
       <div v-if="stats && !localKw" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">曲目</div><div class="text-lg font-semibold text-slate-100 font-mono">{{ stats.total }}</div></div>
@@ -180,6 +193,8 @@ const offset = ref(0);
 const scanning = ref(false);
 const auditing = ref(false);
 const backfilling = ref(false);
+const missingCount = ref(0);
+const pruning = ref(false);
 const auditResult = ref(null);
 const backfillResult = ref(null);
 const deletingId = ref(null);
@@ -232,8 +247,24 @@ async function addOne(song) {
 
 async function scan() {
   scanning.value = true; message.value = null;
-  try { const r = await api.scan(); await Promise.all([load(), loadStats()]); message.value = { ok: true, text: `扫描完成，新增 ${r.added ?? 0} 首，共 ${r.total ?? 0} 首` }; }
+  try { const r = await api.scan(); await Promise.all([load(), loadStats(), checkMissing()]); message.value = { ok: true, text: `扫描完成，新增 ${r.added ?? 0} 首，共 ${r.total ?? 0} 首` }; }
   finally { scanning.value = false; }
+}
+
+// ---------- 失效曲目（磁盘上已被外部删除） ----------
+async function checkMissing() {
+  try { const r = await api.libraryMissing(); missingCount.value = r?.missing ?? 0; } catch { missingCount.value = 0; }
+}
+async function prune() {
+  if (!confirm(`清理 ${missingCount.value} 首失效曲目？\n仅删除索引条目（并移出相关歌单），不会动磁盘文件。`)) return;
+  pruning.value = true; message.value = null;
+  try {
+    const r = await api.libraryPrune();
+    message.value = r?.ok
+      ? { ok: true, text: r.message || `已清理 ${r.removed} 首` }
+      : { ok: false, text: r?.error || '清理失败' };
+    await Promise.all([load(), loadStats(), checkMissing()]);
+  } finally { pruning.value = false; }
 }
 
 async function audit() { auditing.value = true; try { auditResult.value = await api.audit(200); } finally { auditing.value = false; } }
@@ -287,5 +318,5 @@ async function createAndAdd() {
   if (c && c.ok) { await api.playlistAdd(c.id, s.id); pickSong.value = null; await loadPlaylists(); message.value = { ok: true, text: '已新建并加入歌单' }; }
 }
 
-onMounted(() => { load(); loadStats(); loadPlaylists(); });
+onMounted(() => { load(); loadStats(); loadPlaylists(); checkMissing(); });
 </script>
