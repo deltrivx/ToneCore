@@ -98,8 +98,10 @@ export class SourceLoader {
           this.scripts.push(Object.assign(inst, { file: f }));
           this.health.recordLoaded(f, inst.platforms ?? []);
         } else {
-          this.health.recordLoadFailure(f, '脚本未返回可用实例（可能缺少 module.exports 或初始化失败）');
-          logger.warn({ file: f }, '音源加载失败：脚本未返回实例');
+          // 措辞要准确：绝大多数情况不是「缺 module.exports」，而是脚本要先联网
+          // 拉配置再上报 inited，却在等待窗口内没完成（上游慢/不可达/格式不兼容）。
+          this.health.recordLoadFailure(f, '脚本未上报 inited：联网初始化超时，或脚本格式与本运行时不兼容');
+          logger.warn({ file: f }, '音源加载失败：脚本未上报 inited');
         }
       } catch (e) {
         const msg = normalizeLoadError(String(e));

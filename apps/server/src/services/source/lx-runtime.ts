@@ -17,6 +17,17 @@ import { logger } from '../../logger.js';
 
 const PROTOCOL_VERSION = '2.6.0';
 
+/**
+ * 等待脚本上报 `inited` 的上限。
+ *
+ * 新版 LX 自定义源（聚合 / 野草 / 野花 / 四音 等）普遍是**先联网拉配置、再
+ * `send('inited', ...)` 握手**的流程，init 往返常常 1~3 秒。
+ * 早前这里固定只等 500ms 就判定结果，于是这批脚本全部被误判成
+ * 「未返回可用实例（可能缺少 module.exports）」—— 实际上它们根本不是
+ * module.exports 风格，只是没赶上窗口。改为事件驱动、到上限才放弃。
+ */
+const INIT_WAIT_MS = 12000;
+
 /** 洛雪环境对象（脚本通过 lx.env / lx.ENV 读取） */
 const LX_ENV = {
   getUserAgent: () =>
@@ -206,9 +217,21 @@ export function loadLxScript(filePath: string, code: string): Promise<LxScriptIn
     /** 脚本异步阶段（init 期间的 fetch 等）冒出来的异常，用于归因「为什么没 init 成功」 */
     const asyncErrors: string[] = [];
 
+    // 收尾只做一次。finish 在下面才定义（脚本可能在同步阶段就上报 inited，
+    // 那时 finish 还没初始化），所以用函数指针延迟绑定，避免 TDZ。
+    let finished = false;
+    let finishFn: (() => void) | null = null;
+    const finishOnce = () => {
+      if (finished) return;
+      finished = true;
+      finishFn?.();
+    };
+
     const onSend = (event: string, data: unknown) => {
       if (event === 'inited') {
         inited = data as LxInitedPayload;
+        // 一上报就收尾，不再死等固定窗口
+        finishOnce();
         return;
       }
       if (event === 'updateAlert') {
@@ -410,6 +433,11 @@ export function loadLxScript(filePath: string, code: string): Promise<LxScriptIn
       } satisfies LxScriptInstance);
     };
 
-    setTimeout(finish, 500);
+    finishFn = finish;
+
+    // 脚本可能已经在同步阶段上报（少见，但存在）；否则等它异步 init 完成。
+    // 上限 INIT_WAIT_MS 到点仍未上报才判失败 —— 不再用固定 500ms 误杀新版脚本。
+    if (inited) { finished = true; finish(); }
+    else setTimeout(finishOnce, INIT_WAIT_MS);
   });
 }
