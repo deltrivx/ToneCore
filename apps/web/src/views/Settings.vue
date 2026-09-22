@@ -9,12 +9,6 @@
     <div v-if="!cfg" class="tc-card p-6 text-sm text-slate-600">加载中…</div>
 
     <template v-else>
-      <!-- 被容器环境变量锁定的字段：改这里不会生效，必须改模板 -->
-      <div v-if="lockedFields.length" class="tc-card p-3 text-xs text-amber-400/90 leading-relaxed">
-        以下配置由容器环境变量锁定，在此修改不会生效，请改容器模板 / compose 后重建：
-        <span class="font-mono text-amber-300">{{ lockedFields.join('、') }}</span>
-      </div>
-
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
         <!-- ============ 左列 ============ -->
         <div class="space-y-5">
@@ -300,8 +294,6 @@ import { api } from '../composables/useApi.js';
 const cfg = ref(null);
 const saving = ref(false);
 const saved = ref(false);
-/** 被环境变量锁定的字段名（由后端 /api/config 下发） */
-const lockedFields = ref([]);
 /** 「关于」区块用到的运行信息（版本 / 音源数 / 曲目数） */
 const about = ref(null);
 
@@ -461,7 +453,6 @@ async function loadNowPlaying() {
 
 onMounted(async () => {
   const c = await api.config();
-  lockedFields.value = (c && c._lockedByEnv) || [];
   cfg.value = c;
   try { about.value = await api.health(); } catch { about.value = null; }
   await loadSpeaker();

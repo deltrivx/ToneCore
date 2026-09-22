@@ -165,9 +165,16 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     const q = req.query as any;
     const keyword = String(q.keyword || '').trim();
     if (!keyword) return { ok: false, error: '缺少 keyword' };
-    const groups = await d.engine.searchAll(keyword, q.platforms ? String(q.platforms).split(',') : undefined);
+    // 检索维度：song（默认）/ artist / album —— 供「按歌手、按专辑入库」
+    const raw = String(q.type || 'song');
+    const type = (['song', 'artist', 'album'].includes(raw) ? raw : 'song') as 'song' | 'artist' | 'album';
+    const groups = await d.engine.searchAll(
+      keyword,
+      q.platforms ? String(q.platforms).split(',') : undefined,
+      type,
+    );
     return {
-      ok: true, keyword,
+      ok: true, keyword, type,
       platforms: Object.fromEntries([...groups].map(([k, v]) => [k, v.slice(0, 20)])),
       /** 已下线的平台（界面可据此说明为什么看不到） */
       retired: d.engine.retiredPlatforms,

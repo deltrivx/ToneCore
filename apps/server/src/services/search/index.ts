@@ -5,7 +5,20 @@ import { searchKw } from './platforms/kw.js';
 import { searchTx } from './platforms/tx.js';
 import { searchWy } from './platforms/wy.js';
 
-export type SearchFn = (keyword: string, page: number, limit: number) => Promise<Song[]>;
+/**
+ * 检索维度：
+ *   song   —— 按歌曲名（默认）
+ *   artist —— 按歌手（返回该歌手的热门歌曲，便于「整歌手入库」）
+ *   album  —— 按专辑（返回该专辑下的曲目）
+ */
+export type SearchType = 'song' | 'artist' | 'album';
+
+export type SearchFn = (
+  keyword: string,
+  page: number,
+  limit: number,
+  type?: SearchType,
+) => Promise<Song[]>;
 
 /**
  * 平台搜索层（宿主自研）。
@@ -32,25 +45,35 @@ export const RETIRED_PLATFORMS: Record<string, string> = {
 
 export class SearchEngine {
   /** 单平台搜索 */
-  async searchPlatform(platform: string, keyword: string, page = 1, limit = 20): Promise<Song[]> {
+  async searchPlatform(
+    platform: string,
+    keyword: string,
+    page = 1,
+    limit = 20,
+    type: SearchType = 'song',
+  ): Promise<Song[]> {
     const fn = PLATFORM_SEARCH[platform];
     if (!fn) return [];
     try {
-      return await fn(keyword, page, limit);
+      return await fn(keyword, page, limit, type);
     } catch (e) {
-      logger.debug({ platform, keyword, err: String(e).slice(0, 150) }, '平台搜索失败');
+      logger.debug({ platform, keyword, type, err: String(e).slice(0, 150) }, '平台搜索失败');
       return [];
     }
   }
 
   /** 全平台并发搜索 */
-  async searchAll(keyword: string, platforms?: string[]): Promise<Map<string, Song[]>> {
+  async searchAll(
+    keyword: string,
+    platforms?: string[],
+    type: SearchType = 'song',
+  ): Promise<Map<string, Song[]>> {
     const cfg = loadConfig();
     const use = (platforms?.length ? platforms : cfg.platforms).filter((p) => PLATFORM_SEARCH[p]);
     const out = new Map<string, Song[]>();
 
     await Promise.all(use.map(async (p) => {
-      const list = await this.searchPlatform(p, keyword);
+      const list = await this.searchPlatform(p, keyword, 1, 20, type);
       if (list.length) out.set(p, list);
     }));
     return out;

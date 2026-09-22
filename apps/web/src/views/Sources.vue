@@ -58,14 +58,14 @@
         class="tc-card p-3.5 space-y-2.5"
         :class="s.loadState === 'failed' ? 'border-rose-500/30' : ''">
 
-        <!-- 头部：名称 + 状态点 -->
+        <!-- 头部：名称 + 状态点（仅表示能否加载，取消历史健康度） -->
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
             <div class="text-sm text-slate-200 truncate" :title="s.name">{{ s.name }}</div>
             <div class="text-[10px] text-slate-600 font-mono truncate">{{ s.file }}</div>
           </div>
           <span class="shrink-0 mt-0.5 w-2 h-2 rounded-full"
-            :class="statusDot(s)"></span>
+            :class="s.loadState === 'failed' ? 'bg-rose-500' : 'bg-slate-500'"></span>
         </div>
 
         <!-- 平台标签 -->
@@ -73,32 +73,12 @@
           <span v-for="p in s.platforms" :key="p" class="tc-badge text-[10px]">{{ p }}</span>
         </div>
 
-        <!-- 状态区（无论正常与否都显示） -->
+        <!-- 状态区：只反映「是否加载成功」 -->
         <div class="rounded-md px-2.5 py-2 text-[11px] leading-relaxed"
-          :class="s.loadState === 'failed' ? 'bg-rose-500/10 text-rose-300' : statusBox(s)">
-          <div class="flex items-center gap-1.5">
-            <!-- 明确标注这是历史统计，避免与「本次测试」混淆 -->
-            <span class="opacity-60">历史</span>
-            <span class="font-medium">{{ statusText(s) }}</span>
-            <span v-if="s.loadState !== 'failed' && s.healthDetail && s.healthDetail.success + s.healthDetail.failure > 0"
-              class="font-mono opacity-70">
-              成功率 {{ rate(s.healthDetail) }}%
-            </span>
-          </div>
+          :class="s.loadState === 'failed' ? 'bg-rose-500/10 text-rose-300' : 'bg-ink-800/60 text-slate-400'">
+          <div class="font-medium">{{ statusText(s) }}</div>
           <div v-if="s.loadState === 'failed'" class="mt-1 opacity-90 break-words">
-            原因：{{ s.loadError || 未知原因 }}
-          </div>
-          <div v-else-if="s.healthDetail && s.healthDetail.consecutiveFailures >= 3"
-            class="mt-1 opacity-90">
-            原因：连续失败 {{ s.healthDetail.consecutiveFailures }} 次，已临时熔断
-          </div>
-          <div v-else-if="s.healthDetail && s.healthDetail.failure > 0 && s.healthDetail.success === 0"
-            class="mt-1 opacity-90">
-            原因：尚未成功取链，源站可能限流或已变动
-          </div>
-          <div v-else-if="!s.healthDetail || (s.healthDetail.success + s.healthDetail.failure === 0)"
-            class="mt-1 opacity-70">
-            提示：已加载，尚未使用过（无健康数据）
+            原因：{{ s.loadError || '未知原因' }}
           </div>
         </div>
 
@@ -140,36 +120,8 @@ const testResult = ref({});
 
 const failedCount = computed(() => sources.value.filter(s => s.loadState === 'failed').length);
 
-function statusDot(s) {
-  if (s.loadState === 'failed') return 'bg-rose-500';
-  const h = s.healthDetail;
-  if (h && h.consecutiveFailures >= 3) return 'bg-amber-400';
-  if (h && h.failure > 0 && h.success === 0) return 'bg-amber-400';
-  if (h && h.success > 0) return 'bg-emerald-400';
-  return 'bg-slate-500';
-}
-
-function statusBox(s) {
-  const h = s.healthDetail;
-  if (h && h.consecutiveFailures >= 3) return 'bg-amber-500/10 text-amber-300';
-  if (h && h.failure > 0 && h.success === 0) return 'bg-amber-500/10 text-amber-300';
-  if (h && h.success > 0) return 'bg-emerald-500/10 text-emerald-300';
-  return 'bg-ink-800/60 text-slate-400';
-}
-
 function statusText(s) {
-  if (s.loadState === 'failed') return '加载失败';
-  const h = s.healthDetail;
-  if (!h || h.success + h.failure === 0) return '待验证';
-  if (h.consecutiveFailures >= 3) return '已熔断';
-  if (h.success === 0) return '不可用';
-  if (h.failure === 0) return '正常';
-  return '部分可用';
-}
-
-function rate(h) {
-  const t = h.success + h.failure;
-  return t ? Math.round(h.success / t * 100) : 0;
+  return s.loadState === 'failed' ? '加载失败' : '已加载';
 }
 
 async function load() {

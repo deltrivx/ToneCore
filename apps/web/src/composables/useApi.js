@@ -37,7 +37,8 @@ export const api = {
   sourceTest:  (file, keyword) => req('/api/sources/test', { method: 'POST', body: { file, keyword } }),
   reloadSources: () => req('/api/sources/reload', { method: 'POST' }),
 
-  search:      (kw) => req(`/api/search?keyword=${encodeURIComponent(kw)}`),
+  search:      (kw, type = 'song') =>
+    req(`/api/search?keyword=${encodeURIComponent(kw)}&type=${encodeURIComponent(type)}`),
   play:        (kw, artist) => req('/api/play', { method: 'POST', body: { keyword: kw, artist } }),
   downloads:   () => req('/api/downloads'),
   platforms:   () => req('/api/platforms'),

@@ -43,11 +43,25 @@ export function looseParse(text: string): any | null {
   }
 }
 
-export async function searchKw(keyword: string, page = 1, limit = 20): Promise<Song[]> {
+/**
+ * 检索维度 → 酷我 `ft` 参数。
+ *   song → music（默认，按曲名）
+ *   artist → artist（按歌手，返回该歌手曲目）
+ *   album → album（按专辑）
+ */
+const KW_FT: Record<string, string> = { song: 'music', artist: 'artist', album: 'album' };
+
+export async function searchKw(
+  keyword: string,
+  page = 1,
+  limit = 20,
+  type: 'song' | 'artist' | 'album' = 'song',
+): Promise<Song[]> {
   const pn = Math.max(0, page - 1);
+  const ft = KW_FT[type] || 'music';
   const url =
     `https://search.kuwo.cn/r.s?all=${encodeURIComponent(keyword)}` +
-    `&ft=music&itemset=web_2013&client=kt&pn=${pn}&rn=${limit}` +
+    `&ft=${ft}&itemset=web_2013&client=kt&pn=${pn}&rn=${limit}` +
     `&rformat=json&encoding=utf8`;
 
   let text = '';

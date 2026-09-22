@@ -299,8 +299,12 @@ export class SourceEngine {
   }
 
   /** 全平台并发搜索 */
-  async searchAll(keyword: string, platforms?: string[]): Promise<Map<string, Song[]>> {
-    return this.search.searchAll(keyword, platforms);
+  async searchAll(
+    keyword: string,
+    platforms?: string[],
+    type: 'song' | 'artist' | 'album' = 'song',
+  ): Promise<Map<string, Song[]>> {
+    return this.search.searchAll(keyword, platforms, type);
   }
 
   /** 单平台搜索 */
