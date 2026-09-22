@@ -3,10 +3,13 @@ import { ref } from 'vue';
 const BASE = '';
 
 async function req(path, opts = {}) {
+  // 只在有 body 时才声明 application/json，否则 Fastify 会因「声明了 JSON 但体为空」
+  // 抛出 400 FST_ERR_CTP_EMPTY_JSON_BODY，导致无 body 的 DELETE/POST（如删歌单、移除曲目）失败。
+  const hasBody = opts.body !== undefined && opts.body !== null;
   const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: hasBody ? { 'Content-Type': 'application/json' } : {},
     ...opts,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    body: hasBody ? JSON.stringify(opts.body) : undefined,
   });
   const text = await res.text();
   try { return JSON.parse(text); } catch { return { ok: res.ok, raw: text }; }

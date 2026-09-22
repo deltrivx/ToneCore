@@ -60,6 +60,12 @@ async function main() {
   logger.info({ sources: engine.sourceCount, songs: scan.total, publicBase: publicBase() }, '初始化完成');
 
   const app = Fastify({ logger: false, bodyLimit: 10 * 1024 * 1024 });
+  // 防御：允许「Content-Type: application/json 但体为空」的请求（如不带 body 的 DELETE/POST）。
+  // 默认 Fastify 会抛 400 FST_ERR_CTP_EMPTY_JSON_BODY，导致删歌单/移除曲目被前端误判失败。
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    if (body === '' || body === undefined || body === null) return done(null, {});
+    try { done(null, JSON.parse(body as string)); } catch (e) { done(e as Error); }
+  });
   await registerRoutes(app, { engine, downloader, lib, scraper, speaker, orchestrator, player, lyrics, publicBase });
 
   const webDir = path.resolve(process.cwd(), 'public');
