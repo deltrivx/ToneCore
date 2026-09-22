@@ -1,9 +1,7 @@
 <template>
   <div class="h-full flex overflow-hidden">
     <!-- ============ 侧边栏（PC 常驻 / 移动端抽屉） ============ -->
-    <!-- 移动端遮罩 -->
-    <div v-if="drawerOpen" class="fixed inset-0 z-30 bg-black/60 md:hidden"
-         @click="drawerOpen = false"></div>
+    <div v-if="drawerOpen" class="fixed inset-0 z-30 bg-black/60 md:hidden" @click="drawerOpen = false"></div>
 
     <aside
       class="fixed md:static inset-y-0 left-0 z-40 w-[232px] shrink-0
@@ -13,14 +11,12 @@
 
       <!-- 品牌 -->
       <div class="h-14 shrink-0 flex items-center gap-2.5 px-4 border-b border-ink-700">
-        <!-- 用 :src 绑定而非静态 src：icon.png 由容器运行时从 assets/ 拷到 public/，
-             构建期 Vite 里并不存在这个文件，静态引用会让构建失败 -->
         <img :src="ICON" alt="ToneCore" class="w-7 h-7 rounded-lg" />
         <span class="font-semibold text-slate-100 tracking-tight">ToneCore</span>
         <span v-if="health?.version" class="tc-badge ml-auto text-[10px]">v{{ health.version }}</span>
       </div>
 
-      <!-- 主导航 -->
+      <!-- 主导航：仅四项（主页 / 曲库 / 音源 / 设置），其他功能以后再加 -->
       <nav class="flex-1 overflow-y-auto p-2 space-y-0.5">
         <div v-for="item in navItems" :key="item.id"
           class="relative tc-nav-item"
@@ -28,18 +24,14 @@
           @click="go(item.id)">
           <span class="w-4 text-center text-base leading-none">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
-          <!-- 播放状态指示：挂在「音乐库」上（播放页已整合进曲库，不再单开一页） -->
-          <span v-if="item.id === 'library' && player.state.playing" class="tc-bars ml-auto">
+          <!-- 播放状态指示挂在「主页」上（正在播放的歌单/曲目在那里） -->
+          <span v-if="item.id === 'home' && player.state.playing" class="tc-bars ml-auto">
             <i></i><i></i><i></i>
-          </span>
-          <span v-else-if="item.id === 'library' && player.state.queue.length"
-                class="ml-auto text-[10px] font-mono text-slate-600">
-            {{ player.state.queue.length }}
           </span>
         </div>
       </nav>
 
-      <!-- 底部状态 -->
+      <!-- 底部状态（运行状态折叠进这里，不再单独占一个导航位） -->
       <div class="shrink-0 border-t border-ink-700 p-3 space-y-2">
         <div class="flex items-center gap-2">
           <span class="tc-dot" :class="health?.ok ? 'tc-dot-ok' : 'tc-dot-off'"></span>
@@ -54,37 +46,31 @@
 
     <!-- ============ 主区 ============ -->
     <div class="flex-1 min-w-0 flex flex-col">
-      <!-- 顶栏（移动端显汉堡 + 标题） -->
+      <!-- 顶栏：仅显示当前页标题（搜索框内嵌在各页顶部，避免入口冗余） -->
       <header class="h-14 shrink-0 border-b border-ink-700 bg-ink-850/80 backdrop-blur
                      flex items-center gap-3 px-3 md:px-5">
         <button class="md:hidden tc-icon-btn w-8 h-8 shrink-0" @click="drawerOpen = true">☰</button>
         <h1 class="text-sm font-medium text-slate-300 truncate">{{ pageTitle }}</h1>
-
-        <div class="ml-auto flex items-center gap-2">
-          <!-- 全局搜索入口 -->
-          <button class="tc-icon-btn w-8 h-8" title="搜索" @click="go('search')">🔍</button>
-        </div>
       </header>
 
-      <!-- 内容区：底部留出播放条高度 -->
+      <!-- 内容区：有播放时给底部迷你条留白 -->
       <main class="flex-1 min-h-0 overflow-y-auto"
             :class="player.state.playUrl || player.state.queue.length ? 'pb-[76px] md:pb-[76px]' : ''">
         <div class="px-3 md:px-5 py-4">
-          <SearchView v-if="route === 'search'" />
+          <Home v-if="route === 'home'" />
           <Library v-else-if="route === 'library'" />
           <Sources v-else-if="route === 'sources'" />
-          <Dashboard v-else-if="route === 'dash'" :health="health" />
           <Settings v-else />
         </div>
       </main>
 
-      <!-- 迷你播放条（有队列时常驻） -->
+      <!-- 迷你播放条（有队列时常驻，全屏播放页由此展开） -->
       <MiniPlayer v-if="player.state.queue.length" />
 
-      <!-- 移动端底部 Tab（仅主导航，PC 隐藏） -->
+      <!-- 移动端底部 Tab：与主导航一致的四项 -->
       <nav class="md:hidden shrink-0 border-t border-ink-700 bg-ink-850/95 backdrop-blur">
-        <div class="grid grid-cols-5">
-          <button v-for="item in mobileItems" :key="item.id"
+        <div class="grid grid-cols-4">
+          <button v-for="item in navItems" :key="item.id"
             class="py-2 flex flex-col items-center gap-0.5 transition-colors"
             :class="route === item.id ? 'text-neon' : 'text-slate-600'"
             @click="go(item.id)">
@@ -104,41 +90,33 @@
 import { ref, computed, onMounted } from 'vue';
 import { api } from './composables/useApi.js';
 import { usePlayer } from './composables/usePlayer.js';
-import SearchView from './views/SearchView.vue';
-import Dashboard from './views/Dashboard.vue';
-import Sources from './views/Sources.vue';
+import Home from './views/Home.vue';
 import Library from './views/Library.vue';
+import Sources from './views/Sources.vue';
 import Settings from './views/Settings.vue';
 import MiniPlayer from './components/MiniPlayer.vue';
 import FullPlayer from './components/FullPlayer.vue';
 
 /**
- * 导航对齐主流音乐播放器（Navidrome / SongLoft 的通行结构）：
- *
- *   **音乐库**   —— 浏览 + 播放合一的主页面。原来「正在播放」是独立一页，
- *                   听歌时要在「播放页 ↔ 曲库」之间来回跳，不符合通行习惯；
- *                   现在播放态由常驻迷你条 + 可展开全屏播放页承载，
- *                   曲库里点即播，队列与歌词就地可见。
- *   在线搜索     —— 联网搜歌独立页（多平台结果聚合）
- *   音源 / 运行状态 / 设置
+ * 导航收敛为四项，对齐主流音乐播放器（Navidrome / SongLoft 的主流结构）：
+ *   主页   —— 歌单 + 播放（默认落地页）
+ *   曲库   —— 本地曲库的检索、详情与刮削
+ *   音源   —— 音源脚本管理
+ *   设置   —— 中枢参数 / 小爱音箱接入
+ * 「运行状态」折叠进侧栏底部状态条；「联网搜索」不再单独成页，改为各页顶部搜索框。
  */
 const navItems = [
-  { id: 'library', label: '音乐库',   icon: '▤' },
-  { id: 'search',  label: '在线搜索', icon: '⌕' },
-  { id: 'sources', label: '音源',     icon: '◉' },
-  { id: 'dash',    label: '运行状态', icon: '◈' },
-  { id: 'settings',label: '设置',     icon: '⚙' },
+  { id: 'home',    label: '主页',   icon: '♫' },
+  { id: 'library', label: '曲库',   icon: '▤' },
+  { id: 'sources', label: '音源',   icon: '◉' },
+  { id: 'settings',label: '设置',   icon: '⚙' },
 ];
 
-/** 移动端底部只放最常用的五个 */
-const mobileItems = navItems.filter((i) => i.id !== 'dash');
-
 const player = usePlayer();
-const route = ref('library');       // 默认页 = 音乐库（播放已整合进曲库）
+const route = ref('home');        // 默认页 = 主页
 const drawerOpen = ref(false);
 const health = ref(null);
 
-/** 图标由服务端 /icon.png 提供（容器运行时从 assets/ 拷入 public/） */
 const ICON = '/icon.png';
 
 const pageTitle = computed(() => navItems.find((i) => i.id === route.value)?.label || 'ToneCore');
@@ -146,7 +124,6 @@ const pageTitle = computed(() => navItems.find((i) => i.id === route.value)?.lab
 function go(id) {
   route.value = id;
   drawerOpen.value = false;
-  // 移动端切页时滚回顶部，否则会停在上一个页面的滚动位置
   document.querySelector('main')?.scrollTo({ top: 0 });
 }
 

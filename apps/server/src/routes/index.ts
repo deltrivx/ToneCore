@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { loadConfig, saveConfig, lockedByEnv } from '../config.js';
@@ -278,6 +279,74 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   app.post('/api/scraper/backfill', async (req) => {
     const limit = Math.min(Math.max(1, Number((req.body as any)?.limit) || 20), 100);
     return d.scraper.backfill(limit);
+  });
+
+  /** 单首刮削：重写标签 / 封面 / 歌词，并刷新封面缓存（曲库详情页「重新刮削这首」） */
+  app.post('/api/scraper/song', async (req) => {
+    const b = (req.body || {}) as any;
+    const rel = String(b.filePath || '').trim();
+    if (!rel) return { ok: false, error: '缺少 filePath' };
+    const song = d.lib.findByPath(rel);
+    if (!song) return { ok: false, error: '曲库未收录该文件' };
+    const abs = path.resolve(loadConfig().musicDir, rel);
+    const r = await d.scraper.applyToFile(abs, {
+      title: song.title, artist: song.artist, album: song.album,
+      id: String(song.id), platform: 'local',
+    });
+    await d.lib.extractCoverFor(rel);
+    return { ok: true, ...r };
+  });
+
+  // ---------- 歌单（命名的可持久化队列） ----------
+  // 主页展示用；播放即把整张歌单的本地曲目灌入服务端队列并按序播放。
+  app.get('/api/playlists', async () => ({ playlists: d.lib.listPlaylists() }));
+
+  app.post('/api/playlists', async (req) => {
+    const b = (req.body || {}) as any;
+    const r = d.lib.createPlaylist(String(b.name || '').trim());
+    return { ok: true, ...r };
+  });
+
+  app.delete('/api/playlists/:id', async (req) => {
+    const id = Number((req.params as any).id);
+    return d.lib.deletePlaylist(id);
+  });
+
+  app.get('/api/playlists/:id', async (req) => {
+    const id = Number((req.params as any).id);
+    const p = d.lib.getPlaylist(id);
+    if (!p) return { ok: false, error: '歌单不存在' };
+    return { ok: true, ...p };
+  });
+
+  app.post('/api/playlists/:id/tracks', async (req) => {
+    const id = Number((req.params as any).id);
+    const b = (req.body || {}) as any;
+    if (Array.isArray(b.songIds) && b.songIds.length) {
+      for (const sid of b.songIds) d.lib.addToPlaylist(id, Number(sid));
+      return { ok: true };
+    }
+    if (b.songId) return d.lib.addToPlaylist(id, Number(b.songId));
+    return { ok: false, error: '缺少 songId' };
+  });
+
+  app.delete('/api/playlists/:id/tracks/:songId', async (req) => {
+    const id = Number((req.params as any).id);
+    const sid = Number((req.params as any).songId);
+    return d.lib.removeFromPlaylist(id, sid);
+  });
+
+  /** 播放整张歌单：本地曲目直接给 /stream 直链，不耗音源额度 */
+  app.post('/api/playlists/:id/play', async (req) => {
+    const id = Number((req.params as any).id);
+    const p = d.lib.getPlaylist(id);
+    if (!p || !p.tracks.length) return { ok: false, error: '歌单为空' };
+    const items = p.tracks.map((s, i) => normalizeQueueItem({
+      title: s.title, artist: s.artist, album: s.album, filePath: s.filePath,
+      platform: 'local', songId: String(s.id),
+    }, i));
+    const st = await d.player.setQueue(items, 0);
+    return { ok: true, ...st };
   });
 
   // ---------- 音箱 ----------

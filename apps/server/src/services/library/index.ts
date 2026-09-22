@@ -57,6 +57,22 @@ export class Library {
         message   TEXT,
         created_at INTEGER NOT NULL
       );
+
+      -- 歌单：命名的可持久化队列（主页展示用）
+      CREATE TABLE IF NOT EXISTS playlists (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        cover      TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS playlist_items (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        playlist_id INTEGER NOT NULL,
+        song_id     INTEGER NOT NULL,
+        position    INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(playlist_id, song_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_pl_items ON playlist_items(playlist_id);
     `);
 
     // 增量迁移：老库没有 cover 列。SQLite 的 ADD COLUMN 是幂等的写法需要
@@ -296,6 +312,104 @@ export class Library {
 
   count(): number {
     return (this.db.prepare('SELECT COUNT(*) AS c FROM songs').get() as any).c;
+  }
+
+  /** 按路径精确取一首（单首刮削时用） */
+  findByPath(relPath: string): LibrarySong | null {
+    const r = this.db.prepare('SELECT * FROM songs WHERE file_path = ?').get(relPath) as any;
+    return r ? this.row(r) : null;
+  }
+
+  // ============ 歌单（命名的可持久化队列） ============
+
+  /** 列出所有歌单（含曲目数），按创建时间倒序 */
+  listPlaylists(): { id: number; name: string; cover?: string; count: number; createdAt: number }[] {
+    const rows = this.db.prepare(
+      `SELECT p.id, p.name, p.cover, p.created_at,
+              (SELECT COUNT(*) FROM playlist_items pi WHERE pi.playlist_id = p.id) AS cnt
+       FROM playlists p ORDER BY p.created_at DESC`
+    ).all() as any[];
+    return rows.map((r) => ({
+      id: r.id, name: r.name, cover: r.cover || undefined,
+      count: r.cnt, createdAt: r.created_at,
+    }));
+  }
+
+  createPlaylist(name: string): { id: number; name: string } {
+    const n = (name || '').trim() || '新歌单';
+    const info = this.db.prepare('INSERT INTO playlists (name, created_at) VALUES (?,?)').run(n, Date.now());
+    return { id: Number(info.lastInsertRowid), name: n };
+  }
+
+  deletePlaylist(id: number): { ok: boolean } {
+    this.db.prepare('DELETE FROM playlist_items WHERE playlist_id = ?').run(id);
+    this.db.prepare('DELETE FROM playlists WHERE id = ?').run(id);
+    return { ok: true };
+  }
+
+  /** 取歌单及其曲目（曲目按 position 升序） */
+  getPlaylist(id: number): { id: number; name: string; cover?: string; tracks: LibrarySong[] } | null {
+    const p = this.db.prepare('SELECT * FROM playlists WHERE id = ?').get(id) as any;
+    if (!p) return null;
+    const items = this.db.prepare(
+      `SELECT s.* FROM playlist_items pi JOIN songs s ON s.id = pi.song_id
+       WHERE pi.playlist_id = ? ORDER BY pi.position ASC, pi.id ASC`
+    ).all(id) as any[];
+    return { id: p.id, name: p.name, cover: p.cover || undefined, tracks: items.map((r: any) => this.row(r)) };
+  }
+
+  addToPlaylist(id: number, songId: number): { ok: boolean; error?: string } {
+    const exists = this.db.prepare('SELECT 1 FROM playlists WHERE id = ?').get(id);
+    if (!exists) return { ok: false, error: '歌单不存在' };
+    const cnt = (this.db.prepare('SELECT COUNT(*) AS c FROM playlist_items WHERE playlist_id = ?').get(id) as any).c;
+    this.db.prepare(
+      'INSERT OR IGNORE INTO playlist_items (playlist_id, song_id, position) VALUES (?,?,?)'
+    ).run(id, songId, cnt);
+    this.updatePlaylistCover(id);
+    return { ok: true };
+  }
+
+  removeFromPlaylist(id: number, songId: number): { ok: boolean } {
+    this.db.prepare('DELETE FROM playlist_items WHERE playlist_id = ? AND song_id = ?').run(id, songId);
+    this.updatePlaylistCover(id);
+    return { ok: true };
+  }
+
+  /** 歌单封面取第一首有封面的曲目（无则清空） */
+  private updatePlaylistCover(id: number) {
+    const first = this.db.prepare(
+      `SELECT s.cover FROM playlist_items pi JOIN songs s ON s.id = pi.song_id
+       WHERE pi.playlist_id = ? AND s.cover IS NOT NULL AND s.cover <> ''
+       ORDER BY pi.position ASC, pi.id ASC LIMIT 1`
+    ).get(id) as any;
+    this.db.prepare('UPDATE playlists SET cover = ? WHERE id = ?').run(first?.cover || null, id);
+  }
+
+  /** 单首重新抽封面（刮削写入标签后刷新缓存图） */
+  async extractCoverFor(relPath: string): Promise<void> {
+    const r = this.db.prepare('SELECT id FROM songs WHERE file_path = ?').get(relPath) as any;
+    if (!r) return;
+    const abs = path.resolve(loadConfig().musicDir, relPath);
+    try {
+      if (!fs.existsSync(abs)) {
+        this.db.prepare('UPDATE songs SET cover = ? WHERE id = ?').run('', r.id);
+        return;
+      }
+      const md = await parseFile(abs, { duration: false });
+      const pic = md?.common?.picture?.[0];
+      if (!pic?.data) {
+        this.db.prepare('UPDATE songs SET cover = ? WHERE id = ?').run('', r.id);
+        return;
+      }
+      const ext = pic.format === 'image/png' ? 'png' : 'jpg';
+      const name = createHash('sha1').update(relPath).digest('hex').slice(0, 16) + '.' + ext;
+      const coverDir = path.join(loadConfig().dataDir, 'covers');
+      try { fs.mkdirSync(coverDir, { recursive: true }); } catch { /* 已存在 */ }
+      fs.writeFileSync(path.join(coverDir, name), pic.data);
+      this.db.prepare('UPDATE songs SET cover = ? WHERE id = ?').run(name, r.id);
+    } catch {
+      // 解析失败：保持现状，下轮扫描再试
+    }
   }
 
   log(entry: { title: string; artist: string; platform?: string; quality?: string; filePath?: string; status: string; message?: string }) {

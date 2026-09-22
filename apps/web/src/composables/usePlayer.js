@@ -281,10 +281,18 @@ export function usePlayer() {
 
   function toggleExpand() { state.expanded = !state.expanded; }
 
+  /** 重新拉取服务端状态（服务端队列被其他接口改写后，用于对齐前端） */
+  async function refresh() {
+    try {
+      const r = await api.player();
+      if (r) applyState(r);
+    } catch { /* 服务端可能短暂不可用 */ }
+  }
+
   return {
     state, current, coverUrl, hasNext, REPEAT_META,
     init, playList, append, play, pause, toggle, next, prev, jump, seek,
-    setVolume, cycleRepeat, removeAt, clear, toggleExpand,
+    setVolume, cycleRepeat, removeAt, clear, toggleExpand, refresh,
   };
 }
 

@@ -60,6 +60,17 @@ export const api = {
 
   audit:       (limit = 200) => req('/api/scraper/audit', { method: 'POST', body: { limit } }),
   backfill:    (limit = 20) => req('/api/scraper/backfill', { method: 'POST', body: { limit } }),
+  scrapeSong:  (filePath) => req('/api/scraper/song', { method: 'POST', body: { filePath } }),
+
+  // ---------- 歌单 ----------
+  playlists:      () => req('/api/playlists'),
+  playlistCreate: (name) => req('/api/playlists', { method: 'POST', body: { name } }),
+  playlistDelete: (id) => req(`/api/playlists/${id}`, { method: 'DELETE' }),
+  playlistGet:    (id) => req(`/api/playlists/${id}`),
+  playlistAdd:    (id, songId) => req(`/api/playlists/${id}/tracks`, { method: 'POST', body: { songId } }),
+  playlistAddMany:(id, songIds) => req(`/api/playlists/${id}/tracks`, { method: 'POST', body: { songIds } }),
+  playlistRemove: (id, songId) => req(`/api/playlists/${id}/tracks/${songId}`, { method: 'DELETE' }),
+  playlistPlay:   (id) => req(`/api/playlists/${id}/play`, { method: 'POST' }),
 
   speaker:        () => req('/api/speaker'),
   speakerLogin:   (username, password) => req('/api/speaker/login', { method: 'POST', body: { username, password } }),
