@@ -296,8 +296,9 @@ export async function registerSubsonicRoutes(app: FastifyInstance, d: Deps): Pro
     if (!id) return fail(reply, 10, 'Required parameter is missing: id');
     const song = d.lib.findById(id);
     if (!song) return fail(reply, 70, 'Song not found');
-    // 交给已有的流端点处理（支持 Range，客户端拖动进度需要）
-    return reply.redirect(`/api/library/${id}/stream`);
+    // 真实流端点是 /stream/<相对路径>（支持 Range —— 客户端拖进度依赖它）。
+    // 注意不是 /api/library/<id>/stream（那个路径不存在，会 404）。
+    return reply.redirect('/stream/' + encodeURIComponent(song.filePath));
   });
 
   /** 下载（部分客户端「离线缓存」走这个） */
@@ -306,7 +307,7 @@ export async function registerSubsonicRoutes(app: FastifyInstance, d: Deps): Pro
     if (!id) return fail(reply, 10, 'Required parameter is missing: id');
     const song = d.lib.findById(id);
     if (!song) return fail(reply, 70, 'Song not found');
-    return reply.redirect(`/api/library/${id}/stream`);
+    return reply.redirect('/stream/' + encodeURIComponent(song.filePath));
   });
 
   // ==================== 封面 / 歌词 ====================
