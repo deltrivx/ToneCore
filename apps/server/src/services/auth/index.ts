@@ -201,7 +201,19 @@ export class AuthService {
 
   /** 仅校验密码（不改任何东西），供 Subsonic 的 p= 明文/enc: 认证使用 */
   checkPassword(username: string, password: string): AuthUser | null {
-    return this.verify(username, password);
+    const u = this.verify(username, password);
+    if (!u) return null;
+    // 得到明文密码的机会很宝贵：老账号（升级前创建）没有 pwd_enc，
+    // 无法支持 Subsonic 令牌认证。这里顺手回填，用户无需重新设置密码。
+    try {
+      const row = this.db.prepare('SELECT pwd_enc FROM users WHERE username = ?').get(username) as any;
+      if (row && !row.pwd_enc) {
+        this.db.prepare('UPDATE users SET pwd_enc = ? WHERE username = ?')
+          .run(this.encryptPassword(password), username);
+        logger.info({ user: username }, '已为老账号回填 Subsonic 令牌认证所需的密码副本');
+      }
+    } catch { /* 回填失败不影响本次登录 */ }
+    return u;
   }
 
   /**
@@ -346,6 +358,14 @@ export class AuthService {
   } {
     const u = this.verify(username, password);
     if (!u) return { ok: false, error: '用户名或密码错误' };
+    // 老账号回填 pwd_enc（Subsonic 令牌认证需要）——这里同样握有明文密码
+    try {
+      const row = this.db.prepare('SELECT pwd_enc FROM users WHERE username = ?').get(username) as any;
+      if (row && !row.pwd_enc) {
+        this.db.prepare('UPDATE users SET pwd_enc = ? WHERE username = ?')
+          .run(this.encryptPassword(password), username);
+      }
+    } catch { /* 忽略 */ }
     const clientId = crypto.randomBytes(8).toString('hex');
     const access = this.issue(u.username, 'access', ACCESS_TTL_SEC, clientId);
     const refresh = this.issue(u.username, 'refresh', REFRESH_TTL_SEC, clientId);
