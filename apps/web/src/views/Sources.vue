@@ -28,7 +28,7 @@
       <div>
         <label class="tc-label">脚本内容</label>
         <textarea v-model="importForm.content" rows="8" class="tc-input font-mono text-[11px]"
-          placeholder="粘贴洛雪音源脚本内容（需含 module.exports）"></textarea>
+          placeholder="粘贴洛雪音源脚本内容（支持 module.exports 或 globalThis.lx + send('inited') 两种写法）"></textarea>
       </div>
       <div class="text-xs text-slate-600">
         也可直接把 .js 文件放进容器数据目录的 <code class="tc-badge">sources/</code> 后点重新加载。
@@ -77,6 +77,8 @@
         <div class="rounded-md px-2.5 py-2 text-[11px] leading-relaxed"
           :class="s.loadState === 'failed' ? 'bg-rose-500/10 text-rose-300' : statusBox(s)">
           <div class="flex items-center gap-1.5">
+            <!-- 明确标注这是历史统计，避免与「本次测试」混淆 -->
+            <span class="opacity-60">历史</span>
             <span class="font-medium">{{ statusText(s) }}</span>
             <span v-if="s.loadState !== 'failed' && s.healthDetail && s.healthDetail.success + s.healthDetail.failure > 0"
               class="font-mono opacity-70">
@@ -124,6 +126,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
+
+/** 点「测试」时用的检索词：用一首各平台都有的热门歌，测试才有真实信号 */
+const TEST_KEYWORD = '稻香';
 
 const sources = ref([]);
 const loading = ref(false);
@@ -238,17 +243,21 @@ async function remove(s) {
 async function test(s) {
   busy.value = s.file; msg.value = null;
   try {
-    const r = await api.sourceTest(s.file, 测试);
+    // ⚠️ 这里 keyword 必须是字符串。早前写成裸标识符 `测试`（没加引号），
+    // 运行时抛 ReferenceError 被下面的 catch 吞掉，于是「每次点测试都失败」，
+    // 而状态区显示的是历史健康度（可能仍是「正常」）—— 两处来源不同，观感自相矛盾。
+    const r = await api.sourceTest(s.file, TEST_KEYWORD);
     const ok = !!(r && r.ok);
     testResult.value[s.file] = {
       ok,
       text: ok
-        ? '测试通过：' + r.songs + ' 条 / ' + r.ms + 'ms' + (r.sample ? ' · ' + r.sample : '')
-        : '测试未通过：' + ((r && r.error) || '未知原因'),
+        ? '本次测试通过：' + r.songs + ' 条 / ' + r.ms + 'ms' + (r.sample ? ' · ' + r.sample : '')
+        : '本次测试未通过：' + ((r && r.error) || '未知原因'),
     };
     await load();
   } catch (e) {
-    testResult.value[s.file] = { ok: false, text: '测试失败：' + e };
+    // 把真实异常透出（而不是笼统的「失败」），否则无法区分是脚本问题还是调用写错
+    testResult.value[s.file] = { ok: false, text: '本次测试异常：' + (e && e.message ? e.message : String(e)) };
   } finally { busy.value = null; }
 }
 

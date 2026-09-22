@@ -1,35 +1,32 @@
 <template>
   <div class="space-y-5">
-    <!-- ============ 顶部：全网搜索（与主页一致的入口） ============ -->
+    <!-- ============ 顶部：云端搜索（曲库搜索框只负责搜云端；搜本地请去主页） ============ -->
     <div class="flex gap-2">
-      <input v-model="onlineKwInput" class="tc-input flex-1" placeholder="全网搜索歌曲 / 歌手（回车）"
-        @keyup.enter="doOnlineSearch" />
+      <div class="relative flex-1">
+        <input v-model="onlineKwInput" class="tc-input w-full pl-8"
+          placeholder="搜索云端歌曲 / 歌手（回车）" @keyup.enter="doOnlineSearch" />
+        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-600 text-xs">🔍</span>
+      </div>
       <button class="tc-btn-primary shrink-0" :disabled="onlineSearching" @click="doOnlineSearch">
-        {{ onlineSearching ? '搜索中…' : '全网搜索' }}
+        {{ onlineSearching ? '搜索中…' : '云端搜索' }}
       </button>
     </div>
 
     <!-- 在线结果（内联，不跳页） -->
     <OnlineSearch v-if="onlineKw" :keyword="onlineKw" />
 
-    <!-- ============ 本地曲库（onlineKw 为空时才显示） ============ -->
+    <!-- ============ 本地曲库（云端搜索结果为空时才显示） ============ -->
     <template v-if="!onlineKw">
-      <!-- 头部：标题 + 统计 + 操作；右上角小框 = 仅本地搜索 -->
+      <!-- 头部：标题 + 统计 + 操作 -->
       <div class="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 class="text-xl font-semibold text-slate-100">曲库</h1>
           <p class="text-sm text-slate-500 mt-0.5">
             共 <span class="text-neon-soft font-mono">{{ data?.total ?? 0 }}</span> 首
-            <template v-if="localKw">· 本地匹配「<span class="text-slate-400">{{ localKw }}</span>」</template>
+            <span class="text-slate-600">· 本地歌曲检索请到「主页」</span>
           </p>
         </div>
         <div class="flex gap-2 flex-wrap items-center">
-          <!-- 右上角小搜索框：仅本地 -->
-          <div class="relative">
-            <input v-model="localKw" class="tc-input w-44 pl-7" placeholder="本地搜索"
-              @input="onLocalInput" />
-            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-slate-600 text-xs">🔍</span>
-          </div>
           <button class="tc-btn text-xs" :disabled="scanning" @click="scan">{{ scanning ? '扫描中…' : '扫描' }}</button>
           <button class="tc-btn text-xs" :disabled="auditing" @click="audit">{{ auditing ? '审计中…' : '元数据审计' }}</button>
           <button class="tc-btn text-xs" :disabled="backfilling" @click="backfill">{{ backfilling ? '补全中…' : '补全标签' }}</button>
@@ -50,7 +47,7 @@
       </div>
 
       <!-- 统计卡 -->
-      <div v-if="stats && !localKw" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div v-if="stats" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">曲目</div><div class="text-lg font-semibold text-slate-100 font-mono">{{ stats.total }}</div></div>
         <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">歌手</div><div class="text-lg font-semibold text-slate-100 font-mono">{{ stats.artists }}</div></div>
         <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">专辑</div><div class="text-lg font-semibold text-slate-100 font-mono">{{ stats.albums }}</div></div>
@@ -71,7 +68,7 @@
       </div>
 
       <!-- ============ 歌单（歌单归曲库，不再占主页版面） ============ -->
-      <section v-if="!localKw">
+      <section>
         <div class="flex items-baseline justify-between mb-3">
           <h2 class="text-base font-semibold text-slate-100">歌单</h2>
           <button class="text-xs text-slate-500 hover:text-neon-soft transition-colors" @click="createPlaylist">
@@ -106,7 +103,7 @@
 
       <!-- 列表 -->
       <div v-if="!data?.songs?.length" class="tc-card p-8 text-center text-sm text-slate-600">
-        {{ localKw ? '本地没有匹配的曲目' : '曲库为空，点击「扫描」建立索引' }}
+        曲库为空，点击「扫描」建立索引
       </div>
 
       <template v-else>
@@ -259,10 +256,7 @@ const onlineKwInput = ref('');
 const onlineKw = ref('');
 const onlineSearching = ref(false);
 
-// 本地搜索（右上角小框，独立于全网搜索）
-const localKw = ref('');
-let localTimer = null;
-
+// 曲库页只保留云端搜索；本地检索归主页，避免两个搜索框语义混淆
 const data = ref(null);
 const stats = ref(null);
 const offset = ref(0);
@@ -299,15 +293,10 @@ async function doOnlineSearch() {
 }
 
 async function load() {
-  data.value = await api.library(PAGE, offset.value, localKw.value);
+  data.value = await api.library(PAGE, offset.value, '');
 }
 async function loadStats() { stats.value = await api.libraryStats(); }
 async function loadPlaylists() { const r = await api.playlists(); playlists.value = (r && r.playlists) || []; }
-
-function onLocalInput() {
-  clearTimeout(localTimer);
-  localTimer = setTimeout(() => { offset.value = 0; load(); }, 250);
-}
 
 function page(dir) { offset.value = Math.max(0, offset.value + dir * PAGE); load(); }
 
