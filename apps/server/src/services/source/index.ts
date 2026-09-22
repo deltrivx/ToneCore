@@ -123,6 +123,7 @@ export class SourceEngine {
     const cfg = loadConfig();
     this.loader = new SourceLoader(cfg.sourcesDir);
     this.search = new SearchEngine();
+    this.loadTests();
   }
 
   async reload() { await this.loader.loadAll(); }
@@ -145,9 +146,17 @@ export class SourceEngine {
     const health = this.healthSnapshotMap();
     return this.loader.listAll().map((s) => {
       const h = health[s.file] || health[s.name] || null;
+      const t = this.testResults[s.file] || null;
+      // 停用的脚本不应参与取链计数，界面也把它标灰
+      const disabled = s.loadState === 'disabled';
       return {
         ...s,
-        platformCoverage: s.platforms.map((p) => ({ platform: p, scripts: this.loader.countForPlatform(p) })),
+        disabled,
+        // 最近一次测试结论（含逐平台），供界面内联显示与平台徽章着色
+        test: t,
+        platformCoverage: disabled
+          ? []
+          : s.platforms.map((p) => ({ platform: p, scripts: this.loader.countForPlatform(p) })),
         healthDetail: h,
       };
     });
@@ -163,30 +172,55 @@ export class SourceEngine {
     return this.loader.healthSnapshot();
   }
 
+  /**
+   * 单脚本测试结果（持久化到 data/source-tests.json）。
+   *
+   * 为什么要落盘：界面要在「已加载 · 测试结果：正常」处内联显示，
+   * 并且**刷新后仍然保留**；平台徽章也要按最近一次结果着色。
+   * 只放内存里一刷新就没了，用户体验等于没测过。
+   */
+  private testFile = path.join(loadConfig().dataDir, 'source-tests.json');
+  private testResults: Record<string, { ok: boolean; at: number; ms?: number; error?: string; platforms?: Record<string, boolean> }> = {};
+
+  private loadTests(): void {
+    try {
+      if (fs.existsSync(this.testFile)) this.testResults = JSON.parse(fs.readFileSync(this.testFile, 'utf8')) || {};
+    } catch { /* 读不到就当没有 */ }
+  }
+  private saveTests(): void {
+    try { fs.writeFileSync(this.testFile, JSON.stringify(this.testResults, null, 2)); } catch { /* ignore */ }
+  }
+  /** 最近一次测试结果（含逐平台结论） */
+  testSnapshot(): Record<string, any> { return this.testResults; }
+
   private healthSnapshotMap(): Record<string, any> {
     const out: Record<string, any> = {};
     for (const h of this.loader.healthSnapshot()) out[h.name] = h;
     return out;
   }
 
-  /** 启用 / 停用音源：移入或移出 _disabled/ */
+  /**
+   * 启用 / 停用音源。
+   *
+   * 早前实现是「把文件移进 _disabled/」—— 但界面列表只扫 sources/ 目录，
+   * 于是**一停用卡片就消失**，用户再也找不到它、也无法重新启用。
+   * 现在改为**原地标记**：文件留在 sources/，文件名记入 disabled 清单；
+   * 界面照常列出（标灰），点「启用」即可恢复，且停用的源不参与取链。
+   */
   async setSourceEnabled(file: string, enabled: boolean): Promise<{ ok: boolean; error?: string }> {
     const cfg = loadConfig();
     const safe = path.basename(file);
     const live = path.join(cfg.sourcesDir, safe);
-    const dis = path.join(cfg.sourcesDir, '..', '_disabled');
+
+    // 兼容历史：若脚本还在旧的 _disabled/ 目录里，先挪回来再改状态
+    const legacy = path.join(cfg.sourcesDir, '..', '_disabled', safe);
     try {
-      if (enabled) {
-        const src = path.join(dis, safe);
-        if (!fs.existsSync(src)) return { ok: false, error: '停用区找不到该脚本' };
+      if (!fs.existsSync(live) && fs.existsSync(legacy)) {
         fs.mkdirSync(cfg.sourcesDir, { recursive: true });
-        fs.renameSync(src, live);
-      } else {
-        if (!fs.existsSync(live)) return { ok: false, error: '脚本不存在' };
-        fs.mkdirSync(dis, { recursive: true });
-        fs.renameSync(live, path.join(dis, safe));
+        fs.renameSync(legacy, live);
       }
-      await this.reload();
+      if (!fs.existsSync(live)) return { ok: false, error: '脚本不存在' };
+      await this.loader.setDisabled(safe, !enabled);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: String(e).slice(0, 200) };
@@ -243,6 +277,10 @@ export class SourceEngine {
    */
   async testSource(file: string, keyword: string, platformOverride?: string): Promise<{
     ok: boolean; songs?: number; sample?: string; error?: string; ms?: number;
+    /** 逐平台结论（界面据此给平台徽章着色） */
+    platforms?: Record<string, boolean>;
+    /** 仅部分平台可用（避免「正常」二字掩盖问题） */
+    partial?: boolean;
   }> {
     const metas = this.loader.listAll();
     const meta = metas.find((m) => m.file === file || m.name === file);
@@ -254,48 +292,48 @@ export class SourceEngine {
     // 不能用 platforms[0] 硬取：kg / mg 的宿主搜索已下线（见 RETIRED_PLATFORMS），
     // 而多数脚本把 kg 排在第一位，于是「测试」会对这些脚本一律报
     // 「kg 平台搜索无结果」—— 但它们在 kw / tx / wy 上其实是好的。
-    // 因此挑第一个宿主还能搜的平台；外面显式传 platform 时以传入为准。
     const usable = meta.platforms.filter((p) => !RETIRED_PLATFORMS[p]);
-    const platform = platformOverride || usable[0] || meta.platforms[0] || 'kw';
+    const targets = platformOverride ? [platformOverride] : usable;
     const t0 = Date.now();
 
-    // 1) 宿主搜索（脚本不参与）
-    let cands: Song[] = [];
-    try {
-      cands = await this.search.searchPlatform(platform, keyword);
-    } catch (e) {
-      return { ok: false, error: '宿主搜索失败：' + String(e).slice(0, 120), ms: Date.now() - t0 };
-    }
-    if (cands.length === 0) {
-      return {
-        ok: false,
-        error: `宿主的 ${platform} 平台搜索无结果，无法为脚本构造取链输入（与脚本本身无关）`,
-        ms: Date.now() - t0,
-      };
+    // 逐平台跑，记录每个平台的结论 —— 界面据此给平台徽章着色
+    const platforms: Record<string, boolean> = {};
+    let firstOkSample = '';
+    let lastError = '';
+
+    for (const p of targets) {
+      try {
+        const cands = await this.search.searchPlatform(p, keyword);
+        if (!cands.length) { platforms[p] = false; lastError = `${p} 平台搜索无结果`; continue; }
+        const url = await this.loader.getUrlFromScript(file, cands[0], loadConfig().quality);
+        if (!url) { platforms[p] = false; lastError = `${p} 未能取到直链（源站限流/失效）`; continue; }
+        platforms[p] = true;
+        if (!firstOkSample) firstOkSample = `${cands[0].title} - ${cands[0].artist} → ${url.quality}`;
+      } catch (e) {
+        platforms[p] = false;
+        lastError = String(e).slice(0, 160);
+      }
     }
 
-    // 2) 只让这一个脚本取链
-    const target = cands[0];
-    const cfg = loadConfig();
-    try {
-      const url = await this.loader.getUrlFromScript(file, target, cfg.quality);
-      const ms = Date.now() - t0;
-      if (!url) {
-        return {
-          ok: false,
-          ms,
-          error: `脚本已加载，但未能取到直链（源站可能限流/失效）· 试了「${target.title} - ${target.artist}」`,
-        };
-      }
+    const ms = Date.now() - t0;
+    const okPlatforms = Object.keys(platforms).filter((p) => platforms[p]);
+    const ok = okPlatforms.length > 0;
+
+    // 落盘：界面要在「已加载 · 测试结果：…」内联显示，且刷新后保留
+    this.testResults[file] = { ok, at: Date.now(), ms, platforms, error: ok ? undefined : lastError };
+
+    if (!ok) {
       return {
-        ok: true,
-        songs: cands.length,
-        ms,
-        sample: `${target.title} - ${target.artist} → ${url.quality}`,
+        ok: false, ms, platforms,
+        error: lastError || '所有可用平台都未能取到直链',
       };
-    } catch (e) {
-      return { ok: false, error: String(e).slice(0, 200), ms: Date.now() - t0 };
     }
+    return {
+      ok: true, songs: okPlatforms.length, ms, platforms,
+      sample: firstOkSample,
+      /** 部分平台可用时也要说明，避免「正常」二字掩盖问题 */
+      partial: okPlatforms.length < targets.length,
+    };
   }
 
   /** 全平台并发搜索 */

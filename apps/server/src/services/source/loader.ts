@@ -3,6 +3,7 @@ import path from 'node:path';
 import { logger } from '../../logger.js';
 import { loadLxScript, type LxScriptInstance, type LxSourceInfo } from './lx-runtime.js';
 import { HealthTracker } from './health.js';
+import { loadConfig } from '../../config.js';
 import type { Song, SongUrl } from './types.js';
 
 /**
@@ -22,8 +23,8 @@ export interface SourceMeta {
   sources: Record<string, LxSourceInfo>;
   file: string;
   health: number;
-  /** 加载状态：ok / failed */
-  loadState?: 'ok' | 'failed';
+  /** 加载状态：ok / failed / disabled */
+  loadState?: 'ok' | 'failed' | 'disabled';
   /** 加载失败原因 */
   loadError?: string;
   /** 加载失败时间 */
@@ -34,10 +35,46 @@ export class SourceLoader {
   private scripts: (LxScriptInstance & { file: string })[] = [];
   private dir: string;
   private health: HealthTracker;
+  /** 被停用的脚本文件名（持久化到 data/source-disabled.json） */
+  private disabled = new Set<string>();
+  private disabledFile: string;
 
   constructor(dir: string) {
     this.dir = dir;
     this.health = new HealthTracker();
+    this.disabledFile = path.join(loadConfig().dataDir, 'source-disabled.json');
+    this.loadDisabled();
+  }
+
+  private loadDisabled(): void {
+    try {
+      if (fs.existsSync(this.disabledFile)) {
+        const raw = JSON.parse(fs.readFileSync(this.disabledFile, 'utf8'));
+        if (Array.isArray(raw)) for (const f of raw) this.disabled.add(String(f));
+      }
+    } catch (e) {
+      logger.debug({ err: String(e) }, '停用清单读取失败');
+    }
+  }
+
+  private saveDisabled(): void {
+    try {
+      fs.writeFileSync(this.disabledFile, JSON.stringify([...this.disabled], null, 2));
+    } catch (e) {
+      logger.warn({ err: String(e) }, '停用清单保存失败');
+    }
+  }
+
+  /** 停用 / 启用某个脚本（只改状态，不动文件；停用后不参与取链） */
+  async setDisabled(file: string, disabled: boolean): Promise<void> {
+    const safe = path.basename(file);
+    if (disabled) this.disabled.add(safe); else this.disabled.delete(safe);
+    this.saveDisabled();
+    await this.loadAll();
+  }
+
+  isDisabled(file: string): boolean {
+    return this.disabled.has(path.basename(file));
   }
 
   get count(): number { return this.scripts.length; }
@@ -51,13 +88,39 @@ export class SourceLoader {
     }));
   }
 
-  /** 完整清单：含加载失败的脚本（界面必须能看见它们和失败原因） */
+  /**
+   * 全部脚本（含加载失败与被停用的）。
+   *
+   * 被停用的脚本**仍在 `sources/` 目录里**，只是不参与取链 ——
+   * 界面必须能看见它们（置灰、可重新启用），否则「一停用就消失」。
+   */
   listAll(): SourceMeta[] {
-    const ok = this.list();
+    // 已加载（可用，排除停用）
+    const ok: SourceMeta[] = this.scripts.map((s) => ({
+      name: s.name, platforms: s.platforms, sources: s.sources, file: s.file,
+      health: Math.round(this.health.score(s.name)),
+      loadState: 'ok' as const,
+    }));
     const okFiles = new Set(ok.map((s) => s.file));
+
+    // 停用：文件在，但我们没加载它 → 手动构造成「已停用」条目
+    const disabled: SourceMeta[] = [];
+    if (fs.existsSync(this.dir)) {
+      for (const f of fs.readdirSync(this.dir).filter((x) => x.endsWith('.js'))) {
+        if (!this.disabled.has(f) || okFiles.has(f)) continue;
+        disabled.push({
+          name: f.replace(/\.js$/, ''),
+          platforms: [], sources: {}, file: f,
+          health: -1,
+          loadState: 'disabled' as const,
+        });
+      }
+    }
+
+    // 加载失败（既有健康度记录里的失败项）
     const failed: SourceMeta[] = this.health
       .snapshot()
-      .filter((h) => h.loadState === 'failed' && !okFiles.has(h.name))
+      .filter((h) => h.loadState === 'failed' && !okFiles.has(h.name) && !this.disabled.has(h.name))
       .map((h) => ({
         name: h.name, platforms: [], sources: {}, file: h.name,
         health: -1,
@@ -65,7 +128,8 @@ export class SourceLoader {
         loadError: h.loadError,
         loadErrorAt: h.loadErrorAt,
       }));
-    return [...ok, ...failed];
+
+    return [...ok, ...disabled, ...failed];
   }
 
   /** 加载失败清单（供健康接口聚合） */
@@ -89,7 +153,13 @@ export class SourceLoader {
     for (const known of this.health.names()) {
       if (!files.includes(known)) this.health.forget(known);
     }
+    // 清单里已不存在的脚本，也从停用集合清掉
+    for (const d of [...this.disabled]) {
+      if (!files.includes(d)) { this.disabled.delete(d); this.saveDisabled(); }
+    }
     for (const f of files) {
+      // 停用的脚本：不加载、不参与取链，但文件保留（界面仍可见并可重新启用）
+      if (this.disabled.has(f)) continue;
       const full = path.join(this.dir, f);
       try {
         const code = fs.readFileSync(full, 'utf8');

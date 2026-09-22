@@ -53,9 +53,8 @@
         <h1 class="text-sm font-medium text-slate-300 truncate">{{ pageTitle }}</h1>
       </header>
 
-      <!-- 内容区：有播放时给底部迷你条留白 -->
-      <main class="flex-1 min-h-0 overflow-y-auto"
-            :class="player.state.playUrl || player.state.queue.length ? 'pb-[76px] md:pb-[76px]' : ''">
+      <!-- 内容区：底部播放条常驻，始终留出高度，避免内容被遮 -->
+      <main class="flex-1 min-h-0 overflow-y-auto pb-[76px]">
         <div class="px-3 md:px-5 py-4">
           <Home v-if="route === 'home'" />
           <Library v-else-if="route === 'library'" />
@@ -64,8 +63,8 @@
         </div>
       </main>
 
-      <!-- 底部常驻播放条（点它上浮「正在播放」面板，不再塞进主页） -->
-      <MiniPlayer v-if="player.state.queue.length" />
+      <!-- 底部常驻播放条：始终显示（无播放时为空态），点击可上浮「正在播放」面板 -->
+      <MiniPlayer />
 
       <!-- 移动端底部 Tab：与主导航一致的四项 -->
       <nav class="md:hidden shrink-0 border-t border-ink-700 bg-ink-850/95 backdrop-blur">

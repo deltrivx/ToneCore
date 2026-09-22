@@ -247,21 +247,55 @@
             暂无设备。若音箱未上线，请先在米家 App 确认设备在线。
           </div>
 
-          <div class="grid grid-cols-2 gap-3 pt-1">
-            <div>
-              <label class="tc-label">轮询间隔 (秒)</label>
-              <input type="number" min="1" v-model.number="spkForm.pollInterval" class="tc-input" />
+          <!-- 监听与唤醒：对齐 SongLoft 小爱插件的可配置项 -->
+          <div class="space-y-3 pt-1">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="tc-label">轮询间隔 (秒)</label>
+                <input type="number" min="1" v-model.number="spkForm.pollInterval" class="tc-input" />
+              </div>
+              <div class="flex items-end">
+                <label class="flex items-center justify-between gap-3 cursor-pointer w-full pb-2">
+                  <span class="text-sm text-slate-300">监听开关</span>
+                  <input type="checkbox" v-model="spkForm.monitorEnabled"
+                    class="w-10 h-5 appearance-none rounded-full bg-ink-700 checked:bg-neon-dim
+                           relative transition-colors cursor-pointer
+                           before:content-[''] before:absolute before:top-0.5 before:left-0.5
+                           before:w-4 before:h-4 before:rounded-full before:bg-slate-300
+                           before:transition-transform checked:before:translate-x-5" />
+                </label>
+              </div>
             </div>
-            <div class="flex items-end">
-              <label class="flex items-center justify-between gap-3 cursor-pointer w-full pb-2">
-                <span class="text-sm text-slate-300">监听开关</span>
-                <input type="checkbox" v-model="spkForm.monitorEnabled"
-                  class="w-10 h-5 appearance-none rounded-full bg-ink-700 checked:bg-neon-dim
-                         relative transition-colors cursor-pointer
-                         before:content-[''] before:absolute before:top-0.5 before:left-0.5
-                         before:w-4 before:h-4 before:rounded-full before:bg-slate-300
-                         before:transition-transform checked:before:translate-x-5" />
-              </label>
+
+            <!-- 唤醒词：命中即触发点歌 -->
+            <div>
+              <label class="tc-label">唤醒词（回车添加，点标签删除）</label>
+              <div class="flex flex-wrap gap-1.5 mb-2">
+                <span v-for="(w, i) in spkForm.wakeWords" :key="w + i"
+                  class="tc-badge text-[11px] cursor-pointer hover:text-rose-400"
+                  title="点击删除" @click="removeWakeWord(i)">{{ w }} ✕</span>
+                <span v-if="!spkForm.wakeWords.length" class="text-xs text-slate-600">未设置，将使用默认唤醒词</span>
+              </div>
+              <input v-model="newWakeWord" class="tc-input font-mono text-xs"
+                placeholder="例如：播放 / 我想听 / 放一首（回车添加）" @keyup.enter="addWakeWord" />
+            </div>
+
+            <!-- 生效设备：勾选后才由中枢接管 -->
+            <div>
+              <label class="tc-label">生效设备（不勾选=不接管）</label>
+              <div v-if="!devices.length" class="text-xs text-slate-600">暂无设备，登录后自动获取</div>
+              <div v-else class="space-y-1.5">
+                <label v-for="dev in devices" :key="dev.id"
+                  class="flex items-center gap-3 cursor-pointer rounded-lg px-2.5 py-1.5 bg-ink-800/50">
+                  <input type="checkbox" :value="dev.id" v-model="spkForm.deviceIds"
+                    class="w-4 h-4 accent-[color:var(--tc-neon,#4fc3f7)]" />
+                  <span class="text-sm text-slate-300 truncate">{{ dev.name || dev.id }}</span>
+                  <span class="text-[10px] ml-auto shrink-0"
+                    :class="dev.online ? 'text-emerald-400' : 'text-slate-600'">
+                    {{ dev.online ? '在线' : '离线' }}
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
           <button class="tc-btn-primary" :disabled="busy" @click="saveSpeakerCfg">
@@ -300,7 +334,19 @@ const about = ref(null);
 const ICON = '/icon.png';
 
 const spk = ref(null);
-const spkForm = ref({ monitorEnabled: false, pollInterval: 1, wakeWords: [] });
+const spkForm = ref({ monitorEnabled: false, pollInterval: 1, wakeWords: [], deviceIds: [] });
+/** 唤醒词输入框（回车追加，避免用逗号切分容易出错） */
+const newWakeWord = ref('');
+
+function addWakeWord() {
+  const w = newWakeWord.value.trim();
+  if (!w) return;
+  if (!spkForm.value.wakeWords.includes(w)) spkForm.value.wakeWords.push(w);
+  newWakeWord.value = '';
+}
+function removeWakeWord(i) {
+  spkForm.value.wakeWords.splice(i, 1);
+}
 const loginForm = ref({ username: '', password: '', code: '' });
 const needVerify = ref(false);
 const verifyUrl = ref('');
