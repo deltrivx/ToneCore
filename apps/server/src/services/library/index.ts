@@ -365,6 +365,12 @@ export class Library {
     };
   }
 
+  /** 按 id 精确取一首（SongLoft 兼容层按 id 访问时要） */
+  findById(id: number): LibrarySong | null {
+    const r = this.db.prepare('SELECT * FROM songs WHERE id = ?').get(id) as any;
+    return r ? this.row(r) : null;
+  }
+
   /** 按路径精确取一首（单首刮削时用） */
   findByPath(relPath: string): LibrarySong | null {
     const r = this.db.prepare('SELECT * FROM songs WHERE file_path = ?').get(relPath) as any;

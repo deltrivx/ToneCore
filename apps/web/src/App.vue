@@ -1,5 +1,8 @@
 <template>
-  <div class="h-full flex overflow-hidden">
+  <!-- 未登录：只显示登录页（SongLoft 兼容层要求 /api/v1/* 带 Bearer 令牌） -->
+  <Login v-if="!loggedIn" @ok="onLogin" />
+
+  <div v-else class="h-full flex overflow-hidden">
     <!-- ============ 侧边栏（PC 常驻 / 移动端抽屉） ============ -->
     <div v-if="drawerOpen" class="fixed inset-0 z-30 bg-black/60 md:hidden" @click="drawerOpen = false"></div>
 
@@ -90,7 +93,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { api } from './composables/useApi.js';
+import { api, authState, setToken } from './composables/useApi.js';
 import { usePlayer } from './composables/usePlayer.js';
 import Home from './views/Home.vue';
 import Library from './views/Library.vue';
@@ -99,6 +102,7 @@ import Settings from './views/Settings.vue';
 import MiniPlayer from './components/MiniPlayer.vue';
 import FullPlayer from './components/FullPlayer.vue';
 import NowPlayingSheet from './components/NowPlayingSheet.vue';
+import Login from './views/Login.vue';
 
 /**
  * 导航收敛为四项，对齐主流音乐播放器（Navidrome / SongLoft 的主流结构）：
@@ -118,7 +122,13 @@ const navItems = [
 ];
 
 const player = usePlayer();
-const route = ref('home');        // 默认页 = 主页
+const loggedIn = ref(!!authState.value.token);
+const route = ref('home');
+
+function onLogin() { loggedIn.value = true; }
+// 令牌失效（401）时退回登录页
+window.addEventListener('tc-unauthorized', () => { loggedIn.value = false; });
+
 const drawerOpen = ref(false);
 const health = ref(null);
 
@@ -133,6 +143,11 @@ function go(id) {
 }
 
 onMounted(async () => {
+  // 有令牌先校验一次，避免拿着过期令牌进主界面后满屏 401
+  if (authState.value.token) {
+    const me = await api.v1Me();
+    if (!me || !me.username) { loggedIn.value = false; setToken(''); }
+  }
   await player.init();
   health.value = await api.health();
   setInterval(async () => { health.value = await api.health(); }, 10000);

@@ -21,6 +21,39 @@
 
 ---
 
+## [0.10.0] - 2026-09-23
+
+新增账号认证与 SongLoft 兼容层（第一阶段）：外部设备可按 SongLoft 方式连接本中枢。
+
+### 新增
+
+- **账号认证**：
+  - 默认账号 `admin` / 密码 `password`，可用容器环境变量
+    `TONECORE_ADMIN_USER` / `TONECORE_ADMIN_PASSWORD` 覆盖（首次启动写入数据库，
+    之后以数据库为准，避免重启把用户改过的密码刷回去）。
+  - 密码用 `scrypt` 加盐哈希存储；令牌为自签 HMAC-SHA256 JWT
+    （access 7 天 / refresh 30 天），签名密钥可用 `TONECORE_JWT_SECRET` 指定，
+    否则自动生成并持久化到数据目录。
+  - 新增登录页；前端请求自动携带 `Authorization: Bearer`，令牌失效自动退回登录页。
+- **SQLite 持久化**：新增 `users`、`auth_tokens`、`play_history` 三张表
+  （复用既有的 `tonecore.db`），用于保存用户信息、令牌状态与播放历史。
+- **SongLoft 兼容层 `/api/v1/*`**（协议依据：实测 SongLoft v2.12.1）：
+  - 认证：`POST /api/v1/auth/login`、`/auth/refresh`、`/auth/logout`、`GET /api/v1/me`
+  - 基础：`GET /api/v1/health`、`/version`
+  - 曲库：`GET /api/v1/songs`、`/songs/search`、`/songs/stats`、`/stats`
+  - 歌单：`GET /api/v1/playlists`、`POST /api/v1/playlists`
+  - 播放：`GET /api/v1/player`、`POST /api/v1/player/play`、`/player/control`
+  - 历史：`GET /api/v1/play-history`、`POST /api/v1/songs/:id/played`
+  - 取流：`GET /api/v1/stream`、`/songs/:id/cover`
+  - 响应与错误体与 SongLoft 同构（错误为 `{ detail, error }`）。
+
+### 变更
+
+- 容器模板新增「管理员账号 / 管理员密码 / 令牌签名密钥」三个变量；
+  `docker-compose.yml` 同步支持。
+
+---
+
 ## [0.9.0] - 2026-09-23
 
 修复音源停用后卡片消失的 bug；播放条常驻并显示封面与歌词；播放面板按成熟音乐平台重做；小爱配置补全。

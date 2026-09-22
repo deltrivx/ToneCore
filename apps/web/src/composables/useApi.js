@@ -1,21 +1,43 @@
 import { ref } from 'vue';
 
 const BASE = '';
+/** 访问令牌：登录后写入 localStorage，刷新后仍有效 */
+const TOKEN_KEY = 'tc.token';
+export const authState = ref({ token: localStorage.getItem(TOKEN_KEY) || '', user: null });
+
+export function setToken(t) {
+  authState.value.token = t || '';
+  try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* 隐私模式 */ }
+}
 
 async function req(path, opts = {}) {
   // 只在有 body 时才声明 application/json，否则 Fastify 会因「声明了 JSON 但体为空」
   // 抛出 400 FST_ERR_CTP_EMPTY_JSON_BODY，导致无 body 的 DELETE/POST（如删歌单、移除曲目）失败。
   const hasBody = opts.body !== undefined && opts.body !== null;
+  const headers = hasBody ? { 'Content-Type': 'application/json' } : {};
+  // 带上令牌（SongLoft 兼容层要求的 Bearer 鉴权）
+  if (authState.value.token) headers['Authorization'] = 'Bearer ' + authState.value.token;
   const res = await fetch(BASE + path, {
-    headers: hasBody ? { 'Content-Type': 'application/json' } : {},
+    headers,
     ...opts,
     body: hasBody ? JSON.stringify(opts.body) : undefined,
   });
+  // 令牌失效：清掉并提示重新登录（避免界面停在「数据加载不出来」）
+  if (res.status === 401) {
+    setToken('');
+    window.dispatchEvent(new CustomEvent('tc-unauthorized'));
+  }
   const text = await res.text();
   try { return JSON.parse(text); } catch { return { ok: res.ok, raw: text }; }
 }
 
 export const api = {
+  // ---------- 认证（SongLoft 兼容：/api/v1/auth/*）----------
+  v1Login:  (username, password) => req('/api/v1/auth/login', { method: 'POST', body: { username, password } }),
+  v1Logout: () => req('/api/v1/auth/logout', { method: 'POST' }),
+  v1Me:     () => req('/api/v1/me'),
+  v1Health: () => req('/api/v1/health'),
+  v1Version:() => req('/api/v1/version'),
   health:      () => req('/api/health'),
   config:      () => req('/api/config'),
   saveConfig:  (c) => req('/api/config', { method: 'POST', body: c }),

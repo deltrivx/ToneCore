@@ -73,4 +73,16 @@
   <Config Name="日志级别" Target="LOG_LEVEL" Default="info" Mode=""
           Description="trace / debug / info / warn / error" Type="Variable" Display="advanced"
           Required="false" Mask="false">info</Config>
+
+  <Config Name="管理员账号" Target="TONECORE_ADMIN_USER" Default="admin" Mode=""
+          Description="控制台与 SongLoft 兼容接口的登录账号（默认 admin）。首次启动写入数据库，之后以数据库为准。"
+          Type="Variable" Display="advanced" Required="false" Mask="false">admin</Config>
+
+  <Config Name="管理员密码" Target="TONECORE_ADMIN_PASSWORD" Default="password" Mode=""
+          Description="管理员密码（默认 password）。修改后需清空数据目录下的 tonecore.db 才会重新初始化，或在界面内改密。"
+          Type="Variable" Display="advanced" Required="false" Mask="true">password</Config>
+
+  <Config Name="令牌签名密钥" Target="TONECORE_JWT_SECRET" Default="" Mode=""
+          Description="留空则自动生成并持久化到数据目录；多实例部署时保持一致可共享登录态。"
+          Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>

@@ -8,6 +8,7 @@ import { loadConfig, ensureDirs } from './config.js';
 import { SourceEngine } from './services/source/index.js';
 import { Downloader } from './services/download/index.js';
 import { Library } from './services/library/index.js';
+import { AuthService } from './services/auth/index.js';
 import { Scraper } from './services/scraper/index.js';
 import { SpeakerService } from './services/speaker/index.js';
 import { Orchestrator } from './services/orchestrator.js';
@@ -41,6 +42,7 @@ async function main() {
   logger.info({ music: cfg.musicDir, data: cfg.dataDir, quality: cfg.quality }, 'ToneCore 启动中');
 
   const lib = new Library();
+  const auth = new AuthService();
   const engine = new SourceEngine();
   const downloader = new Downloader(lib);
   const scraper = new Scraper();
@@ -66,7 +68,7 @@ async function main() {
     if (body === '' || body === undefined || body === null) return done(null, {});
     try { done(null, JSON.parse(body as string)); } catch (e) { done(e as Error); }
   });
-  await registerRoutes(app, { engine, downloader, lib, scraper, speaker, orchestrator, player, lyrics, publicBase });
+  await registerRoutes(app, { engine, downloader, lib, auth, scraper, speaker, orchestrator, player, lyrics, publicBase });
 
   const webDir = path.resolve(process.cwd(), 'public');
   if (fs.existsSync(webDir)) {

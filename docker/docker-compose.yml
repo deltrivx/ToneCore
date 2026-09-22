@@ -28,6 +28,10 @@ services:
       - PLATFORMS=kw,kg,tx,wy,mg
       # 日志级别：trace / debug / info / warn / error
       - LOG_LEVEL=info
+      - TONECORE_ADMIN_USER=${TONECORE_ADMIN_USER:-admin}
+      - TONECORE_ADMIN_PASSWORD=${TONECORE_ADMIN_PASSWORD:-password}
+      - TONECORE_JWT_SECRET=${TONECORE_JWT_SECRET:-}
+      - TONECORE_JWT_SECRET=${TONECORE_JWT_SECRET:-}
     volumes:
       - /your/music:/music
       - /your/appdata/tonecore:/data

@@ -12,11 +12,15 @@ import type { SpeakerService } from '../services/speaker/index.js';
 import type { Orchestrator } from '../services/orchestrator.js';
 import type { PlayerService, QueueItem, RepeatMode } from '../services/player/index.js';
 import type { LyricsService } from '../services/player/lyrics.js';
+import type { AuthService } from '../services/auth/index.js';
+import { registerSongLoftRoutes } from './songloft.js';
 
 export interface Deps {
   engine: SourceEngine;
   downloader: Downloader;
   lib: Library;
+  /** 账号认证与令牌（SongLoft 兼容层依赖） */
+  auth: AuthService;
   scraper: Scraper;
   speaker: SpeakerService;
   orchestrator: Orchestrator;
@@ -50,6 +54,9 @@ function normalizeQueueItem(s: any, _i: number): QueueItem {
 }
 
 export async function registerRoutes(app: FastifyInstance, d: Deps) {
+  // ---------- SongLoft 兼容层（/api/v1/*）：供外部设备按 SongLoft 方式连接 ----------
+  await registerSongLoftRoutes(app, d);
+
   // ---------- 健康检查 ----------
   app.get('/api/health', async () => ({
     ok: true,
