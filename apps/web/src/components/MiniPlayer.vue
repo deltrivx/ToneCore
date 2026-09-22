@@ -1,8 +1,11 @@
 <template>
-  <!-- 迷你播放条：常驻底部，点中间区域展开全屏播放页 -->
+  <!--
+    常驻底部播放条。
+    点击曲目区 → 上浮「正在播放」面板（不离开当前页面）；再次点击或点面板外空白收起。
+  -->
   <div class="tc-mini">
-    <!-- 左：封面 + 曲目信息 -->
-    <div class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" @click="toggleExpand">
+    <!-- 左：封面 + 曲目信息（点击上浮） -->
+    <div class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group" @click="openSheet">
       <div class="w-10 h-10 shrink-0 rounded-lg overflow-hidden bg-ink-800
                   flex items-center justify-center border border-ink-700">
         <img v-if="player.coverUrl.value" :src="player.coverUrl.value" class="w-full h-full object-cover" alt="" />
@@ -17,6 +20,11 @@
           </span>
         </div>
       </div>
+      <!-- 上浮指示：告诉用户这条是可以点开的 -->
+      <span class="shrink-0 text-[10px] text-slate-600 group-hover:text-neon-soft transition-colors"
+        :class="state.sheetOpen ? 'text-neon-soft' : ''">
+        {{ state.sheetOpen ? '▾' : '▴' }}
+      </span>
     </div>
 
     <!-- 中：控制按钮 -->
@@ -43,6 +51,10 @@
       <input class="tc-range w-[72px]" type="range" min="0" max="100" step="1"
         :value="state.volume" @input="e => setVolume(Number(e.target.value))" />
     </div>
+
+    <!-- 全屏歌词（与上浮面板区分：这是整页） -->
+    <button class="hidden md:flex tc-icon-btn w-8 h-8 shrink-0 text-xs"
+      title="全屏歌词" @click="toggleExpand">⤢</button>
   </div>
 </template>
 
@@ -53,5 +65,5 @@ import { usePlayer, fmtTime } from '../composables/usePlayer.js';
 const player = usePlayer();
 const state = player.state;
 const cur = computed(() => player.current.value);
-const { toggle, next, prev, seek, setVolume, toggleExpand } = player;
+const { toggle, next, prev, seek, setVolume, toggleExpand, openSheet } = player;
 </script>

@@ -1,5 +1,6 @@
 <template>
-  <div class="space-y-5 max-w-2xl">
+  <!-- 不再用 max-w-2xl：宽屏下右半边会整片空白。改为两列栅格填满可用宽度 -->
+  <div class="space-y-5">
     <div>
       <h1 class="text-xl font-semibold text-slate-100">设置</h1>
       <p class="text-sm text-slate-500 mt-0.5">中枢运行参数</p>
@@ -13,6 +14,10 @@
         以下配置由容器环境变量锁定，在此修改不会生效，请改容器模板 / compose 后重建：
         <span class="font-mono text-amber-300">{{ lockedFields.join('、') }}</span>
       </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+        <!-- ============ 左列 ============ -->
+        <div class="space-y-5">
       <div class="tc-card p-4 space-y-4">
         <div class="text-sm font-medium text-slate-300 border-b border-ink-700 pb-2">落库策略</div>
 
@@ -94,7 +99,56 @@
         <input :value="cfg.platforms.join(', ')" class="tc-input font-mono text-xs"
           @input="e => cfg.platforms = e.target.value.split(',').map(s => s.trim()).filter(Boolean)" />
       </div>
+        </div><!-- /左列 -->
 
+        <!-- ============ 右列 ============ -->
+        <div class="space-y-5">
+      <!-- 关于：版本、数据位置、项目信息 -->
+      <div class="tc-card p-4 space-y-3">
+        <div class="text-sm font-medium text-slate-300 border-b border-ink-700 pb-2">关于</div>
+
+        <div class="flex items-center gap-3">
+          <!-- 用绑定常量而非字面量 src：否则 Vite 会把它当模块去解析（public 下的资源不该被打包） -->
+          <img :src="ICON" alt="ToneCore" class="w-11 h-11 rounded-xl shrink-0" />
+          <div class="min-w-0">
+            <div class="text-sm text-slate-200">ToneCore</div>
+            <div class="text-xs text-slate-500">无头音乐中枢 · 语音点歌 / 本地曲库 / 全网音源</div>
+          </div>
+          <span class="tc-badge ml-auto text-[10px]">v{{ about?.version || '-' }}</span>
+        </div>
+
+        <dl class="grid grid-cols-1 gap-2 text-xs">
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-slate-600">已装音源</dt>
+            <dd class="font-mono text-slate-300">{{ about?.sources ?? '-' }} 个脚本</dd>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-slate-600">曲库</dt>
+            <dd class="font-mono text-slate-300">{{ about?.library ?? '-' }} 首</dd>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-slate-600">音乐目录</dt>
+            <dd class="font-mono text-slate-400 truncate">{{ cfg.musicDir || cfg.music_dir || '-' }}</dd>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-slate-600">数据目录</dt>
+            <dd class="font-mono text-slate-400 truncate">{{ cfg.dataDir || cfg.data_dir || '-' }}</dd>
+          </div>
+        </dl>
+
+        <div class="flex flex-wrap gap-2 pt-1">
+          <a href="https://github.com/deltrivx/ToneCore" target="_blank" rel="noreferrer"
+            class="tc-btn text-xs">项目仓库</a>
+          <a href="https://github.com/deltrivx/ToneCore/releases" target="_blank" rel="noreferrer"
+            class="tc-btn text-xs">更新日志</a>
+          <a href="https://github.com/deltrivx/ToneCore/issues" target="_blank" rel="noreferrer"
+            class="tc-btn text-xs">反馈问题</a>
+        </div>
+
+        <div class="text-[11px] text-slate-600 leading-relaxed border-t border-ink-700 pt-2">
+          音源脚本遵循洛雪（LX Music）自定义源协议，由第三方维护，本项目的运行时负责加载与取链。
+        </div>
+      </div>
 
       <div class="tc-card p-4 space-y-4">
         <div class="flex items-center justify-between border-b border-ink-700 pb-2">
@@ -226,6 +280,9 @@
         </div>
       </div>
 
+        </div><!-- /右列 -->
+      </div><!-- /两列栅格 -->
+
       <div class="flex gap-2">
         <button class="tc-btn-primary" :disabled="saving" @click="save">
           {{ saving ? '保存中…' : '保存设置' }}
@@ -245,6 +302,10 @@ const saving = ref(false);
 const saved = ref(false);
 /** 被环境变量锁定的字段名（由后端 /api/config 下发） */
 const lockedFields = ref([]);
+/** 「关于」区块用到的运行信息（版本 / 音源数 / 曲目数） */
+const about = ref(null);
+
+const ICON = '/icon.png';
 
 const spk = ref(null);
 const spkForm = ref({ monitorEnabled: false, pollInterval: 1, wakeWords: [] });
@@ -402,6 +463,7 @@ onMounted(async () => {
   const c = await api.config();
   lockedFields.value = (c && c._lockedByEnv) || [];
   cfg.value = c;
+  try { about.value = await api.health(); } catch { about.value = null; }
   await loadSpeaker();
   await loadNowPlaying();
 });

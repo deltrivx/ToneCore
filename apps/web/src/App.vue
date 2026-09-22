@@ -64,7 +64,7 @@
         </div>
       </main>
 
-      <!-- 迷你播放条（有队列时常驻，全屏播放页由此展开） -->
+      <!-- 底部常驻播放条（点它上浮「正在播放」面板，不再塞进主页） -->
       <MiniPlayer v-if="player.state.queue.length" />
 
       <!-- 移动端底部 Tab：与主导航一致的四项 -->
@@ -81,6 +81,9 @@
       </nav>
     </div>
 
+    <!-- 上浮「正在播放」面板：点底部播放条弹出，点空白处 / 收纳按钮收起 -->
+    <NowPlayingSheet v-if="player.state.sheetOpen" />
+
     <!-- 全屏播放页 -->
     <FullPlayer v-if="player.state.expanded" />
   </div>
@@ -96,13 +99,16 @@ import Sources from './views/Sources.vue';
 import Settings from './views/Settings.vue';
 import MiniPlayer from './components/MiniPlayer.vue';
 import FullPlayer from './components/FullPlayer.vue';
+import NowPlayingSheet from './components/NowPlayingSheet.vue';
 
 /**
  * 导航收敛为四项，对齐主流音乐播放器（Navidrome / SongLoft 的主流结构）：
- *   主页   —— 歌单 + 播放（默认落地页）
- *   曲库   —— 本地曲库的检索、详情与刮削
+ *   主页   —— 本地歌曲（默认落地页）
+ *   曲库   —— 检索、详情、刮削与歌单
  *   音源   —— 音源脚本管理
- *   设置   —— 中枢参数 / 小爱音箱接入
+ *   设置   —— 中枢参数 / 小爱音箱接入 / 关于
+ *
+ * 播放相关的界面统一放在「底部常驻播放条 + 上浮面板」，不再占用主页版面。
  * 「运行状态」折叠进侧栏底部状态条；「联网搜索」不再单独成页，改为各页顶部搜索框。
  */
 const navItems = [

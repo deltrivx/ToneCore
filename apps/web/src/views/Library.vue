@@ -70,6 +70,40 @@
         <span class="text-slate-400">失败 <b class="text-slate-600">{{ backfillResult.failed }}</b></span>
       </div>
 
+      <!-- ============ 歌单（歌单归曲库，不再占主页版面） ============ -->
+      <section v-if="!localKw">
+        <div class="flex items-baseline justify-between mb-3">
+          <h2 class="text-base font-semibold text-slate-100">歌单</h2>
+          <button class="text-xs text-slate-500 hover:text-neon-soft transition-colors" @click="createPlaylist">
+            ＋ 新建
+          </button>
+        </div>
+
+        <div v-if="!playlists.length" class="rounded-xl border border-dashed border-ink-700 p-6 text-center">
+          <div class="text-sm text-slate-500">还没有歌单</div>
+          <div class="text-xs text-slate-600 mt-1">在下方曲目上点「⤓ 加入歌单」，或点右上角新建</div>
+        </div>
+
+        <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div v-for="pl in playlists" :key="pl.id" class="group cursor-pointer" @click="openPlaylist(pl)">
+            <div class="relative aspect-square rounded-lg overflow-hidden bg-ink-800 border border-ink-700/60">
+              <img v-if="pl.cover" :src="`/cover/${pl.cover}`" class="w-full h-full object-cover" loading="lazy" />
+              <div v-else class="w-full h-full flex items-center justify-center text-3xl text-slate-700">♫</div>
+              <div class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55">
+                <button class="w-11 h-11 rounded-full bg-gradient-to-br from-neon-dim to-neon
+                               text-ink-950 flex items-center justify-center shadow-glow"
+                  title="播放歌单" @click.stop="playPlaylist(pl)">▶</button>
+              </div>
+              <button class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-rose-300/80
+                             opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px]"
+                title="删除歌单" @click.stop="delPlaylist(pl)">✕</button>
+            </div>
+            <div class="mt-2 text-sm text-slate-200 truncate">{{ pl.name }}</div>
+            <div class="text-xs text-slate-500">{{ pl.count }} 首</div>
+          </div>
+        </div>
+      </section>
+
       <!-- 列表 -->
       <div v-if="!data?.songs?.length" class="tc-card p-8 text-center text-sm text-slate-600">
         {{ localKw ? '本地没有匹配的曲目' : '曲库为空，点击「扫描」建立索引' }}
@@ -153,12 +187,54 @@
           <span>加入歌单：{{ pickSong.title }}</span>
           <button class="tc-icon-btn w-6 h-6" @click="pickSong = null">✕</button>
         </div>
-        <div v-if="!playlists.length" class="text-xs text-slate-600 py-2">还没有歌单，去主页新建一个。</div>
+        <div v-if="!playlists.length" class="text-xs text-slate-600 py-2">还没有歌单，可点下方「新建歌单并加入」。</div>
         <div v-else class="max-h-[50vh] overflow-y-auto space-y-1">
           <button v-for="pl in playlists" :key="pl.id" class="w-full text-left px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-ink-800"
             @click="addToPlaylist(pl)">{{ pl.name }} <span class="text-slate-600 text-[11px]">（{{ pl.count }}）</span></button>
         </div>
         <button class="tc-btn-primary w-full text-xs" @click="createAndAdd">新建歌单并加入</button>
+      </div>
+    </div>
+
+    <!-- ============ 歌单详情浮层 ============ -->
+    <div v-if="activePlaylist" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4"
+      @click.self="activePlaylist = null">
+      <div class="w-full sm:max-w-lg max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl
+                  border border-ink-700 bg-ink-900 overflow-hidden">
+        <div class="px-4 py-3 border-b border-ink-700 flex items-center gap-3">
+          <div class="w-10 h-10 rounded-md overflow-hidden bg-ink-800 shrink-0 flex items-center justify-center">
+            <img v-if="activePlaylist.cover" :src="`/cover/${activePlaylist.cover}`" class="w-full h-full object-cover" />
+            <span v-else class="text-slate-600">♫</span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium text-slate-100 truncate">{{ activePlaylist.name }}</div>
+            <div class="text-xs text-slate-500">{{ activeTracks.length }} 首</div>
+          </div>
+          <button class="tc-btn text-xs" :disabled="!activeTracks.length" @click="playPlaylist(activePlaylist)">▶ 播放</button>
+          <button class="tc-icon-btn w-7 h-7" @click="activePlaylist = null">✕</button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto divide-y divide-ink-800">
+          <div v-if="!activeTracks.length" class="px-4 py-8 text-center text-xs text-slate-600">
+            歌单还是空的，在曲库列表上点「⤓ 加入歌单」
+          </div>
+          <div v-for="(s, i) in activeTracks" :key="s.id"
+            class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-ink-800/60 group">
+            <span class="w-5 shrink-0 text-center font-mono text-xs"
+              :class="isCurrent(s) ? 'text-neon' : 'text-slate-700'">{{ i + 1 }}</span>
+            <div class="w-8 h-8 shrink-0 rounded overflow-hidden bg-ink-800 flex items-center justify-center">
+              <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="truncate" :class="isCurrent(s) ? 'text-neon-soft' : 'text-slate-200'">{{ s.title }}</div>
+              <div class="text-xs text-slate-500 truncate">{{ s.artist || '未知歌手' }}</div>
+            </div>
+            <button class="tc-icon-btn w-6 h-6 shrink-0 opacity-0 group-hover:opacity-100 text-[10px]"
+              title="播放" @click="playTrackAt(activePlaylist, i)">▶</button>
+            <button class="tc-icon-btn w-6 h-6 shrink-0 opacity-0 group-hover:opacity-100 text-[10px] text-rose-400/70"
+              title="移出歌单" @click="removeTrack(activePlaylist, s)">✕</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -206,6 +282,9 @@ const scrapeMsg = ref(null);
 
 const pickSong = ref(null);
 const playlists = ref([]);
+/** 歌单详情浮层 */
+const activePlaylist = ref(null);
+const activeTracks = ref([]);
 
 function ext(p) { const m = /\.([^.]+)$/.exec(p || ''); return m ? m[1].toUpperCase() : ''; }
 function initial(s) { const t = String(s.title || '').trim(); return t ? t[0].toUpperCase() : '♪'; }
@@ -231,6 +310,53 @@ function onLocalInput() {
 }
 
 function page(dir) { offset.value = Math.max(0, offset.value + dir * PAGE); load(); }
+
+// ---------- 歌单（归曲库） ----------
+async function createPlaylist() {
+  const name = prompt('歌单名称', '新歌单');
+  if (name === null) return;
+  const r = await api.playlistCreate(name.trim() || '新歌单');
+  if (r && r.ok) { await loadPlaylists(); message.value = { ok: true, text: '已新建歌单' }; }
+  else message.value = { ok: false, text: (r && r.error) || '新建失败' };
+}
+
+async function delPlaylist(pl) {
+  if (!confirm(`删除歌单「${pl.name}」？`)) return;
+  const r = await api.playlistDelete(pl.id);
+  if (r && r.ok) {
+    playlists.value = playlists.value.filter(p => p.id !== pl.id);
+    if (activePlaylist.value?.id === pl.id) activePlaylist.value = null;
+  } else message.value = { ok: false, text: (r && r.error) || '删除失败' };
+}
+
+async function openPlaylist(pl) {
+  const r = await api.playlistGet(pl.id);
+  activeTracks.value = (r && r.tracks) || [];
+  activePlaylist.value = pl;
+}
+
+async function playPlaylist(pl) {
+  message.value = null;
+  try {
+    const r = await api.playlistPlay(pl.id);
+    if (r && r.ok) await player.refresh();
+    else message.value = { ok: false, text: (r && r.error) || '歌单为空' };
+  } catch (e) { message.value = { ok: false, text: '播放失败：' + e }; }
+}
+
+async function playTrackAt(pl, index) {
+  const r = await api.playlistPlay(pl.id);
+  if (r && r.ok) await player.jump(Math.min(index, player.state.queue.length - 1));
+}
+
+async function removeTrack(pl, s) {
+  const r = await api.playlistRemove(pl.id, s.id);
+  if (r && r.ok) {
+    const g = await api.playlistGet(pl.id);
+    activeTracks.value = (g && g.tracks) || [];
+    await loadPlaylists();
+  }
+}
 
 function play(song, index) {
   const songs = (data.value?.songs || []).map(s => ({

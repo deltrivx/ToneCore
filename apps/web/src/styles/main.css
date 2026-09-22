@@ -133,3 +133,9 @@
   @apply absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neon to-transparent;
   animation: tc-scan 3s linear infinite;
 }
+
+/* 底部「正在播放」上浮面板：从底部升起一小段，配合遮罩做「浮出」而非「跳页」的观感 */
+@keyframes tcSheetUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
