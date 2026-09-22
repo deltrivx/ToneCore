@@ -38,13 +38,18 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # flavor 与显式 version：让 steps.meta.outputs.version 在 tag 构建时得到
-          # 版本号（如 0.11.1），而不是分支名。原配置里 type=ref,event=branch 排第一，
-          # 导致 outputs.version 取到 "main"。
+          # tags 顺序与 enable 都很关键（每次都踩）：
+          #   1) type=semver 必须在最前 —— outputs.version 取的是「tags 列表第一项」，
+          #      否则 tag 构建产出的镜像版本号会变成分支名（曾错成 "main"）。
+          #   2) type=ref,event=branch 必须加 enable={{is_default_branch}}：
+          #      否则在 tag 事件下它也会生成 "main" 标签，
+          #      而 latest 那条只在默认分支生效 → tag 构建时 latest 缺失，
+          #      Unraid 拉 latest 就拿到 version=main 的镜像。
+          #   3) latest 必须显式生成，Unraid 依赖它。
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=ref,event=branch
+            type=ref,event=branch,enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       # 单架构先构建并落盘，既验证构建能走通，也用于启动冒烟测试。
