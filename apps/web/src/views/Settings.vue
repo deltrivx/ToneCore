@@ -101,7 +101,6 @@
       <div class="tc-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-line pb-2">
           <div class="text-sm font-medium text-fg-muted">账号</div>
-          <span class="text-[11px] text-fg-subtle">保存在数据库，重启不丢</span>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
@@ -139,12 +138,6 @@
           <span class="text-[11px] text-fg-subtle">改账号名或密码后需要重新登录</span>
         </div>
 
-        <!-- 挂载路径：把「为什么会持久化」讲清楚 -->
-        <div class="text-[11px] text-fg-subtle leading-relaxed border-t border-line pt-2 space-y-0.5">
-          <div>数据库文件：<code class="tc-badge text-[10px]">{{ cfg.dataDir || '/data' }}/tonecore.db</code></div>
-          <div>持久化方式：把宿主目录挂载到容器的 <code class="tc-badge text-[10px]">/data</code>，重建容器数据不丢</div>
-          <div>用户信息、播放进度、播放历史、歌单均存在该库中</div>
-        </div>
       </div>
 
       <div class="tc-card p-4 space-y-4">
@@ -161,9 +154,6 @@
           </div>
         </div>
 
-        <div class="text-xs text-fg-subtle">
-          填写小米账号与密码即可登录，登录后设备与凭据自动获取（凭据保存在本地 /data/speaker.yaml，权限 600）。
-        </div>
 
         <!-- 未登录：账号密码表单 -->
         <template v-if="!spk?.loggedIn">
@@ -203,6 +193,12 @@
 
         <!-- 已登录：账号信息 + 设备列表 -->
         <template v-else>
+          <!-- 凭据失效：设备列表会变空，但原因不是「没设备」，必须说清楚 -->
+          <div v-if="spk?.authError" class="tc-alert tc-alert-warn">
+            <Icon name="alert" :size="15" class="mt-0.5" />
+            <span>{{ spk.authError }}</span>
+          </div>
+
           <div class="flex items-center justify-between gap-3 rounded-lg bg-surface-overlay px-3 py-2">
             <div class="min-w-0">
               <div class="text-sm text-fg-muted">{{ spk?.account || '已登录' }}</div>
@@ -250,7 +246,7 @@
             暂无设备。若音箱未上线，请先在米家 App 确认设备在线。
           </div>
 
-          <!-- 监听与唤醒：对齐 SongLoft 小爱插件的可配置项 -->
+          <!-- 监听与唤醒 -->
           <div class="space-y-3 pt-1">
             <div class="grid grid-cols-2 gap-3">
               <div>
@@ -286,8 +282,8 @@
             <!-- 生效设备：勾选后才由中枢接管 -->
             <div>
               <label class="tc-label">生效设备（不勾选=不接管）</label>
-              <div v-if="!devices.length" class="text-xs text-fg-subtle">暂无设备，登录后自动获取</div>
-              <div v-else class="space-y-1.5">
+
+              <div class="space-y-1.5">
                 <label v-for="dev in devices" :key="dev.id"
                   class="flex items-center gap-3 cursor-pointer rounded-lg px-2.5 py-1.5 bg-surface-overlay/50">
                   <input type="checkbox" :value="dev.id" v-model="spkForm.deviceIds"
@@ -311,7 +307,7 @@
         </div>
       </div>
 
-      <!-- 音箱高级配置：对齐 SongLoft MIoT 插件的可配置项 -->
+      <!-- 音箱高级配置 -->
       <SpeakerConfig />
 
       <!-- 关于：版本、数据位置、项目信息 -->
@@ -378,6 +374,7 @@
 import { ref, onMounted } from 'vue';
 import { api, setToken } from '../composables/useApi.js';
 import SpeakerConfig from '../components/SpeakerConfig.vue';
+import Icon from '../components/Icon.vue';
 
 const cfg = ref(null);
 const saving = ref(false);

@@ -1,5 +1,5 @@
 <template>
-  <!-- 未登录：只显示登录页（SongLoft 兼容层要求 /api/v1/* 带 Bearer 令牌） -->
+  <!-- 未登录：只显示登录页 -->
   <Login v-if="!loggedIn" @ok="onLogin" />
 
   <div v-else class="tc-app">

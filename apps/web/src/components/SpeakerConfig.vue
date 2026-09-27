@@ -2,7 +2,6 @@
   <div class="tc-card p-4 space-y-4">
     <div class="flex items-center justify-between border-b border-line pb-2">
       <div class="text-sm font-medium text-fg-muted">音箱高级配置</div>
-      <span class="text-[11px] text-fg-subtle">对齐 SongLoft MIoT 插件</span>
     </div>
 
     <div v-if="loading" class="text-xs text-fg-subtle py-2">载入中…</div>
@@ -148,9 +147,6 @@ import Icon from './Icon.vue';
 
 /**
  * 音箱高级配置。
- *
- * 字段与 SongLoft MIoT 插件对齐，但只保留「在 ToneCore 里有对应实现或明确语义」的项；
- * 指向 SongLoft 自身服务的（server_host / external_search_* 等）不搬。
  *
  * 密钥处理：后端 status 只回传 aiApiKeySet / aiApiKeyHint（脱敏），
  * 因此这里的密钥框永远是空的 —— 留空即表示「不改动已存密钥」，

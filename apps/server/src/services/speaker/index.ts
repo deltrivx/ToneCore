@@ -7,11 +7,11 @@ import {
   fetchConversations, fetchDevices, playUrl, tts,
   loginMiAccount, verifyMiLogin,
   playerControl, setVolume, getVolume,
+  MinaAuthError,
   type MinaConfig,
   type MiLoginResult,
   type PlayerAction,
 } from './protocol.js';
-import { importFromSongLoft } from './songloft-import.js';
 
 export interface SpeakerDevice {
   id: string;
@@ -223,35 +223,25 @@ export class SpeakerService {
   private lastTsByDevice = new Map<string, number>();
   private onCommand: ((cmd: ParsedCommand, deviceId: string, raw: string) => Promise<void>) | null = null;
   private cfgPath: string;
+  /**
+   * 凭据失效的原因（供界面展示）。
+   *
+   * 为什么要单独存：凭据过期时设备接口返回 401，设备列表为空。
+   * 若不区分，界面只能显示「0 台设备」，用户以为音箱没连上，
+   * 实际是登录态过期 —— 这个混淆已经造成过反复误判。
+   */
+  private authError: string | null = null;
 
   constructor() {
     const c = loadConfig();
     this.cfgPath = path.join(c.dataDir, 'speaker.yaml');
     this.load();
-    this.tryImportFromSongLoft();
-  }
-
-  /**
-   * 首次启动且本地无凭据时，尝试从 SongLoft 导入已登录的小米凭据。
-   * 自行登录小米需要精确复刻签名，风控下易踩 code=10001；
-   * 复用 SongLoft 的登录态最稳。导入成功后立即拉设备并启动监听。
-   */
-  private tryImportFromSongLoft() {
-    if (this.cfg.serviceToken && this.cfg.ssecurity && this.cfg.userId) return;
-    const cred = importFromSongLoft(process.env.SONGLOFT_DATA_DIR || '/songloft_data');
-    if (!cred) return;
-    this.cfg = {
-      ...this.cfg,
-      username: this.cfg.username || cred.username,
-      userId: cred.userId,
-      serviceToken: cred.serviceToken,
-      ssecurity: cred.ssecurity,
-      tokenExpiresAt: cred.expiresAt,
-      deviceIds: this.cfg.deviceIds.length ? this.cfg.deviceIds : cred.deviceIds,
-    };
-    this.persist();
-    void this.refreshDevices().catch(() => undefined);
-    if (this.cfg.monitorEnabled) this.startMonitor();
+    // 凭据只在「用户于设置页登录小米账号」时取得，不从任何外部服务导入。
+    // 已登录则启动监听；未登录时保持空态，等用户在界面上填账号密码。
+    if (this.loggedIn) {
+      void this.refreshDevices().catch(() => undefined);
+      if (this.cfg.monitorEnabled) this.startMonitor();
+    }
   }
 
   private load() {
@@ -285,6 +275,8 @@ export class SpeakerService {
       account: this.cfg.username ? maskAccount(this.cfg.username) : null,
       userId: this.cfg.userId ?? null,
       credentialReady: this.loggedIn,
+      // 凭据失效与「没有设备」是两回事，分开上报，避免界面误导
+      authError: this.authError,
       deviceCount: this.devices.length,
       devices: this.devices,
       pollInterval: this.cfg.pollInterval,
@@ -343,6 +335,7 @@ export class SpeakerService {
         ssecurity: r.mina.ssecurity,
         tokenExpiresAt: Date.now() + 30 * 24 * 3600 * 1000,
       };
+      this.authError = null;
       this.persist();
       logger.info({ account: maskAccount(username) }, '音箱账号登录成功');
       await this.refreshDevices();
@@ -369,6 +362,7 @@ export class SpeakerService {
         ssecurity: r.mina.ssecurity,
         tokenExpiresAt: Date.now() + 30 * 24 * 3600 * 1000,
       };
+      this.authError = null;
       this.persist();
       await this.refreshDevices();
       if (this.cfg.monitorEnabled) this.startMonitor();
@@ -388,6 +382,7 @@ export class SpeakerService {
       password: undefined,
     };
     this.devices = [];
+    this.authError = null;
     this.persist();
     logger.info('音箱账号已退出');
   }
@@ -437,9 +432,19 @@ export class SpeakerService {
         online: d.presence === 'online' || d.isOnline === true,
         hardware: d.hardware,
       })).filter((d) => d.id);
+      this.authError = null;
       logger.info({ count: this.devices.length }, '设备列表已刷新');
     } catch (e) {
-      logger.warn({ err: String(e) }, '设备列表拉取失败');
+      // ⚠️ 关键：不要把鉴权失败当成「没有设备」。
+      // 凭据过期时接口返回 401，若在这里静默返回空数组，界面就显示 devices:0，
+      // 看起来像「音箱没连上」，真实原因却是登录态过期 —— 之前正是因此反复误判。
+      if (e instanceof MinaAuthError) {
+        this.devices = [];
+        this.authError = '登录态已失效，请重新登录小米账号';
+        logger.warn({ status: e.status }, '设备列表拉取失败：小米登录态已失效');
+      } else {
+        logger.warn({ err: String(e) }, '设备列表拉取失败');
+      }
     }
     return this.devices;
   }

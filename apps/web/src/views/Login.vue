@@ -40,12 +40,7 @@
           {{ busy ? '登录中…' : '登录' }}
         </button>
 
-        <div class="text-[11px] text-fg-subtle leading-relaxed border-t border-line pt-3">
-          默认账号 <code class="tc-chip">admin</code>
-          / 密码 <code class="tc-chip">password</code>。
-          可用环境变量 <code class="tc-chip">TONECORE_ADMIN_USER</code>、
-          <code class="tc-chip">TONECORE_ADMIN_PASSWORD</code> 覆盖。
-        </div>
+
       </div>
     </div>
   </div>

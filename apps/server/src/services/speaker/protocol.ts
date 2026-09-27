@@ -104,8 +104,16 @@ export interface MinaConfig {
 export interface MiLoginCredentials {
   /** 小米账号（手机号 / 邮箱 / 小米 ID） */
   username: string;
-  /** 账号密码 */
+  /** 账号密码（明文；内部会转成 MD5 大写后再提交） */
   password: string;
+}
+
+/** 密码 → 小米登录所需的 hash：MD5(明文) 大写 */
+export function hashPassword(plain: string): string {
+  const p = String(plain ?? "");
+  // 已经是 32 位十六进制的按已哈希处理，避免重复加密
+  if (/^[0-9a-fA-F]{32}$/.test(p)) return p.toUpperCase();
+  return crypto.createHash("md5").update(p, "utf8").digest("hex").toUpperCase();
 }
 
 const MINA_LOGIN_BASE = "https://account.xiaomi.com";
@@ -168,6 +176,10 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
     logger.debug({ err: String(e) }, "authStart 获取登录上下文失败，继续尝试无 sign 登录");
   }
 
+  // ⚠️ hash 必须是「密码的 MD5 大写」，不是明文密码。
+  // 小米 serviceLoginAuth2 的契约如此；传明文会稳定返回 code=70016
+  // 「登录验证失败」，且与账号密码是否正确无关，极容易被误判成风控。
+  // 已在 hashPassword() 里统一处理，调用方传明文即可。
   const params = new URLSearchParams({
     _json: "true",
     qs: "%40%3A%2F%2Faccount.xiaomi.com%2Fpass%2FserviceLoginAuth2",
@@ -175,7 +187,7 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
     serviceParam:
       "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
     user: c.username,
-    hash: c.password,
+    hash: hashPassword(c.password),
   });
   if (sign) params.set("_sign", sign);
 
@@ -306,7 +318,21 @@ export async function minaRequest(
   });
 
   const text = await res.text();
+  if (!res.ok) {
+    // 401 是凭据失效的特征码。这里必须抛出带标记的异常：
+    // 上层若把 401 当成「没设备」静默吞掉，界面会显示 devices:0，
+    // 用户看到的是「没连上设备」，真实原因却是登录态过期 —— 极难排查。
+    throw new MinaAuthError(res.status, text.slice(0, 200));
+  }
   try { return JSON.parse(text); } catch { return { raw: text, status: res.status }; }
+}
+
+/** Mina 接口鉴权失败（凭据失效 / 过期） */
+export class MinaAuthError extends Error {
+  constructor(public status: number, public snippet: string) {
+    super(`小米接口鉴权失败 (HTTP ${status})：登录态可能已过期，请重新登录`);
+    this.name = 'MinaAuthError';
+  }
 }
 
 /** 拉取音箱最近对话记录（语音点歌的关键入口） */
@@ -377,6 +403,20 @@ export async function fetchDevices(cfg: MinaConfig): Promise<any[]> {
     query: { master: '0', userId: cfg.userId },
   });
   return r?.data || [];
+}
+
+/** 凭据是否仍然有效（用一次轻量请求探活，不依赖本地过期时间） */
+export async function probeCredential(cfg: MinaConfig): Promise<boolean> {
+  try {
+    await minaRequest(cfg, '/admin/v2/device_list', {
+      query: { master: '0', userId: cfg.userId },
+    });
+    return true;
+  } catch (e) {
+    if (e instanceof MinaAuthError) return false;
+    // 网络抖动等不算凭据失效，探活失败时保持原判断
+    throw e;
+  }
 }
 
 // ---------- 播放控制（player_control） ----------
