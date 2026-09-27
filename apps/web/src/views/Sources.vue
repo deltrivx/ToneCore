@@ -2,10 +2,10 @@
   <div class="space-y-5">
     <div class="flex items-end justify-between gap-3">
       <div>
-        <h1 class="text-xl font-semibold text-slate-100">音源</h1>
-        <p class="text-sm text-slate-500 mt-0.5">
-          共 <span class="text-neon-soft font-mono">{{ sources.length }}</span> 个脚本
-          <span v-if="disabledCount" class="text-slate-600">
+        <h1 class="text-xl font-semibold text-fg">音源</h1>
+        <p class="text-sm text-fg-subtle mt-0.5">
+          共 <span class="text-accent font-mono">{{ sources.length }}</span> 个脚本
+          <span v-if="disabledCount" class="text-fg-subtle">
             · <span class="font-mono">{{ disabledCount }}</span> 已停用
           </span>
           <span v-if="failedCount" class="text-rose-400">
@@ -26,7 +26,7 @@
 
     <!-- 导入面板 -->
     <div v-if="importOpen" class="tc-card p-4 space-y-3">
-      <div class="text-sm font-medium text-slate-300 border-b border-ink-700 pb-2">导入音源脚本</div>
+      <div class="text-sm font-medium text-fg-muted border-b border-line pb-2">导入音源脚本</div>
       <div>
         <label class="tc-label">文件名（须以 .js 结尾）</label>
         <input v-model="importForm.filename" class="tc-input font-mono text-xs" placeholder="例如：我的音源.js" />
@@ -36,7 +36,7 @@
         <textarea v-model="importForm.content" rows="8" class="tc-input font-mono text-[11px]"
           placeholder="粘贴洛雪音源脚本内容（支持 module.exports 或 globalThis.lx + send('inited') 两种写法）"></textarea>
       </div>
-      <div class="text-xs text-slate-600">
+      <div class="text-xs text-fg-subtle">
         也可直接把 .js 文件放进容器数据目录的 <code class="tc-badge">sources/</code> 后点重新加载。
       </div>
       <div class="flex gap-2">
@@ -51,7 +51,7 @@
       {{ msg.text }}
     </div>
 
-    <div v-if="!sources.length && !loading" class="tc-card p-8 text-center text-sm text-slate-600">
+    <div v-if="!sources.length && !loading" class="tc-card p-8 text-center text-sm text-fg-subtle">
       尚未加载音源脚本<br />
       <span class="text-xs">点上方「导入脚本」，或把洛雪 <code class="tc-badge">.js</code> 音源放入 <code class="tc-badge">sources/</code> 后重新加载</span>
     </div>
@@ -64,9 +64,9 @@
         <!-- 头部：名称 + 状态点 -->
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
-            <div class="text-sm truncate" :class="s.disabled ? 'text-slate-500' : 'text-slate-200'"
+            <div class="text-sm truncate" :class="s.disabled ? 'text-fg-subtle' : 'text-fg'"
               :title="s.name">{{ s.name }}</div>
-            <div class="text-[10px] text-slate-600 font-mono truncate">{{ s.file }}</div>
+            <div class="text-[10px] text-fg-subtle font-mono truncate">{{ s.file }}</div>
           </div>
           <span class="shrink-0 mt-0.5 w-2 h-2 rounded-full" :class="statusDot(s)"></span>
         </div>
@@ -145,11 +145,11 @@ function badgePlatforms(s) {
 }
 
 function platformClass(s, p) {
-  if (s.disabled) return 'border-ink-600 text-slate-600';
+  if (s.disabled) return 'border-line text-fg-subtle';
   const t = s.test && s.test.platforms ? s.test.platforms[p] : undefined;
   if (t === true) return 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10';
   if (t === false) return 'border-rose-500/40 text-rose-400 bg-rose-500/10';
-  return 'border-ink-600 text-slate-500';
+  return 'border-line text-fg-subtle';
 }
 
 function platformTitle(s, p) {
@@ -161,26 +161,26 @@ function platformTitle(s, p) {
 }
 
 function cardClass(s) {
-  if (s.disabled) return 'opacity-50 border-ink-700';
+  if (s.disabled) return 'opacity-50 border-line';
   if (s.loadState === 'failed') return 'border-rose-500/30';
   return '';
 }
 
 function statusDot(s) {
-  if (s.disabled || s.loadState === 'failed') return 'bg-slate-600';
+  if (s.disabled || s.loadState === 'failed') return 'bg-fg-subtle';
   const t = s.test ? s.test.ok : undefined;
   if (t === true) return 'bg-emerald-400';
   if (t === false) return 'bg-rose-400';
-  return 'bg-slate-500';
+  return 'bg-fg-subtle';
 }
 
 function statusBoxClass(s) {
-  if (s.disabled) return 'bg-ink-800/40 text-slate-500';
+  if (s.disabled) return 'bg-surface-overlay/40 text-fg-subtle';
   if (s.loadState === 'failed') return 'bg-rose-500/10 text-rose-300';
   const t = s.test ? s.test.ok : undefined;
   if (t === true) return 'bg-emerald-500/10 text-emerald-300';
   if (t === false) return 'bg-rose-500/10 text-rose-300';
-  return 'bg-ink-800/60 text-slate-400';
+  return 'bg-surface-overlay text-fg-muted';
 }
 
 function statusText(s) {

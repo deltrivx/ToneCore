@@ -9,17 +9,18 @@
 
 | 标签 | 说明 | 更新方式 |
 |---|---|---|
-| `latest` | 默认分支最新构建 | 随 `main` 分支提交自动更新 |
+| `latest` | 最新发布版本 | 推 `v*` 标签时生成（分支构建不写 `latest`） |
 | `0.2.0` | 语义化版本号 | 推 `v0.2.0` 标签时生成 |
 | `0.2` | 次版本号 | 同上 |
 
-> **注意**：`latest` 跟随 `main` 分支，可能包含尚未发布的改动。
+> **注意**：`latest` 只由版本标签构建生成，不跟随 `main` 分支的中间提交。
 > 生产环境建议固定到具体的版本号标签。
 
 ## 版本列表
 
 | 版本 | 日期 | 镜像标签 | 说明 |
 |---|---|---|---|
+| [0.12.0](docs/release-notes/v0.12.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.12.0` | 界面体系重构：矢量图标 / 单入口导航 / 设计 token |
 | [0.11.7](docs/release-notes/v0.11.7.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.7` | 修复 tag 构建时 `latest` 标签缺失 |
 | [0.11.6](docs/release-notes/v0.11.6.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.6` | 修复 Subsonic 取流 502（路径分隔符被整体编码） |
 | [0.11.5](docs/release-notes/v0.11.5.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.5` | 修复前端整体白屏（进度上报函数被摇树移除） |

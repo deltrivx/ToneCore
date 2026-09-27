@@ -1,93 +1,112 @@
 <template>
-  <div class="space-y-4">
-    <!-- 顶部：本地搜索 + 显示方式切换 -->
+  <div class="space-y-5">
+    <!-- ============ 顶部：搜索 + 显示方式 ============ -->
     <div class="flex gap-2 items-center">
       <div class="relative flex-1">
-        <input v-model="localKw" class="tc-input w-full pl-8" placeholder="搜索本地歌曲 / 歌手 / 专辑" />
-        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-600 text-xs">🔍</span>
-        <button v-if="localKw" class="absolute right-2 top-1/2 -translate-y-1/2 tc-icon-btn w-6 h-6 text-[10px]"
-          title="清空" @click="localKw = ''">✕</button>
+        <Icon name="search" :size="15" class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none" />
+        <input v-model="localKw" class="tc-input pl-9 pr-9" placeholder="搜索本地歌曲 / 歌手 / 专辑" />
+        <button v-if="localKw" class="tc-icon-btn tc-icon-btn-sm absolute right-2 top-1/2 -translate-y-1/2"
+          title="清空" @click="localKw = ''">
+          <Icon name="x" :size="13" />
+        </button>
       </div>
 
       <!-- 显示方式：列表 / 小图 / 中图 -->
-      <div class="inline-flex rounded-lg border border-ink-700 overflow-hidden shrink-0">
+      <div class="inline-flex rounded-md border border-line overflow-hidden shrink-0 bg-white/[0.02]">
         <button v-for="v in VIEWS" :key="v.id"
-          class="px-2.5 py-1.5 text-[11px] transition-colors"
-          :class="view === v.id ? 'bg-neon-dim/20 text-neon-soft' : 'text-slate-500 hover:text-slate-300'"
-          :title="v.label" @click="setView(v.id)">{{ v.icon }}</button>
+          class="px-2.5 py-1.5 transition-colors"
+          :class="view === v.id ? 'bg-accent-weak text-accent' : 'text-fg-subtle hover:text-fg'"
+          :title="v.label" @click="setView(v.id)">
+          <Icon :name="v.icon" :size="15" />
+        </button>
       </div>
     </div>
 
-    <div class="flex items-center gap-3 text-xs text-slate-600">
-      <span>{{ localKw ? `匹配 ${filtered.length} / ${total}` : `${total} 首` }}</span>
-      <button class="hover:text-neon-soft transition-colors" :disabled="loading" @click="load">
-        {{ loading ? '载入中…' : '刷新' }}
+    <!-- 统计行 -->
+    <div class="flex items-center gap-3 text-xs text-fg-subtle">
+      <span class="tc-num">
+        {{ localKw ? `匹配 ${filtered.length} / ${total}` : `${total} 首` }}
+      </span>
+      <button class="tc-btn-ghost text-xs -ml-1" :disabled="loading" @click="load">
+        <Icon name="refresh" :size="13" />
+        <span>刷新</span>
       </button>
     </div>
 
-    <div v-if="loading && !songs.length" class="rounded-xl border border-dashed border-ink-700 p-8 text-center">
-      <div class="text-sm text-slate-500">载入中…</div>
+    <!-- ============ 状态区 ============ -->
+    <div v-if="loading && !songs.length" class="grid gap-3"
+      :class="view === 'list' ? '' : 'grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'">
+      <div v-for="i in 8" :key="i" class="tc-skeleton" :class="view === 'list' ? 'h-14' : 'aspect-square'"></div>
     </div>
 
-    <div v-else-if="!songs.length" class="rounded-xl border border-dashed border-ink-700 p-8 text-center">
-      <div class="text-2xl text-slate-700 mb-1">♪</div>
-      <div class="text-sm text-slate-500">曲库还没有歌曲</div>
-      <div class="text-xs text-slate-600 mt-1">去「曲库」点「扫描」，或用云端搜索入库</div>
+    <div v-else-if="!songs.length" class="tc-empty">
+      <div class="tc-empty-icon"><Icon name="music" :size="22" /></div>
+      <div class="tc-empty-title">曲库还没有歌曲</div>
+      <div class="tc-empty-desc">去「曲库」点「扫描」，或用云端搜索入库</div>
     </div>
 
-    <div v-else-if="!filtered.length" class="rounded-xl border border-dashed border-ink-700 p-8 text-center">
-      <div class="text-sm text-slate-500">没有匹配「{{ localKw }}」的歌曲</div>
-      <div class="text-xs text-slate-600 mt-1">找网络歌曲请去「曲库」搜索</div>
+    <div v-else-if="!filtered.length" class="tc-empty">
+      <div class="tc-empty-icon"><Icon name="search" :size="22" /></div>
+      <div class="tc-empty-title">没有匹配「{{ localKw }}」的歌曲</div>
+      <div class="tc-empty-desc">找网络歌曲请去「曲库」搜索</div>
     </div>
 
     <!-- ============ 列表视图 ============ -->
-    <div v-else-if="view === 'list'" class="tc-card overflow-hidden divide-y divide-ink-800">
-      <div v-for="(s, i) in filtered" :key="s.id"
-        class="px-2 sm:px-4 py-2 flex items-center gap-3 text-sm hover:bg-ink-800/50
-               transition-colors group cursor-pointer"
+    <div v-else-if="view === 'list'" class="tc-panel divide-y divide-line">
+      <div v-for="s in filtered" :key="s.id"
+        class="tc-row group"
+        :class="{ 'tc-row-active': isCurrent(s) }"
         @click="playSong(s)">
-        <div class="w-9 h-9 shrink-0 rounded-md overflow-hidden bg-ink-700 flex items-center justify-center relative">
+        <div class="relative tc-cover tc-cover-sm">
           <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
-          <span v-else class="text-slate-500 text-xs">{{ initial(s) }}</span>
-          <div class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55 text-white text-xs">▶</div>
-        </div>
-        <div class="min-w-0 flex-1">
-          <div class="text-slate-200 truncate" :class="{ 'text-neon-soft': isCurrent(s) }">{{ s.title }}</div>
-          <div class="text-xs text-slate-500 truncate">{{ s.artist || '未知歌手' }}</div>
-        </div>
-        <span class="text-slate-600 truncate hidden md:inline max-w-[160px] text-xs">{{ s.album }}</span>
-        <span class="text-[11px] font-mono text-slate-700 shrink-0">{{ fmtDur(s.duration) }}</span>
-        <button class="tc-icon-btn shrink-0 opacity-0 group-hover:opacity-100 text-[10px]"
-          title="加入队列" @click.stop="appendSong(s)">＋</button>
-      </div>
-    </div>
-
-    <!-- ============ 小图 / 中图网格 ============ -->
-    <div v-else :class="view === 'grid-sm'
-      ? 'grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 gap-3'
-      : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4'">
-      <div v-for="(s, i) in filtered" :key="s.id" class="group cursor-pointer" @click="playSong(s)">
-        <div class="relative aspect-square rounded-lg overflow-hidden bg-ink-800 border border-ink-700/60">
-          <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
-          <div v-else class="w-full h-full flex items-center justify-center text-slate-700"
-            :class="view === 'grid-sm' ? 'text-xl' : 'text-3xl'">♪</div>
-          <div class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55">
-            <button class="rounded-full bg-gradient-to-br from-neon-dim to-neon text-ink-950
-                           flex items-center justify-center shadow-glow"
-              :class="view === 'grid-sm' ? 'w-8 h-8 text-sm' : 'w-11 h-11'"
-              :title="`播放 ${s.title}`">▶</button>
+          <span v-else class="text-[11px] font-medium text-fg-muted">{{ initial(s) }}</span>
+          <div class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55 text-white">
+            <Icon name="play" :size="14" />
           </div>
         </div>
-        <div class="mt-1.5 truncate" :class="view === 'grid-sm'
-          ? 'text-[11px] text-slate-300' : 'text-sm text-slate-200'"
-          :title="s.title">{{ s.title }}</div>
-        <div v-if="view !== 'grid-sm'" class="text-xs text-slate-500 truncate">{{ s.artist || '未知歌手' }}</div>
+        <div class="min-w-0 flex-1">
+          <div class="text-sm text-fg truncate" :class="{ 'text-accent': isCurrent(s) }">{{ s.title }}</div>
+          <div class="text-xs text-fg-muted truncate">{{ s.artist || '未知歌手' }}</div>
+        </div>
+        <span class="text-fg-subtle truncate hidden md:inline max-w-[160px] text-xs">{{ s.album }}</span>
+        <span class="text-[11px] tc-num text-fg-subtle shrink-0">{{ fmtDur(s.duration) }}</span>
+        <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
+          title="加入队列" @click.stop="appendSong(s)">
+          <Icon name="plus" :size="14" />
+        </button>
       </div>
     </div>
 
-    <div v-if="message" class="tc-card p-3 text-sm"
-      :class="message.ok ? 'text-emerald-400' : 'text-amber-400'">
-      {{ message.text }}
+    <!-- ============ 网格视图（小图 / 中图） ============ -->
+    <div v-else :class="view === 'grid-sm'
+      ? 'grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-3'
+      : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4'">
+      <div v-for="s in filtered" :key="s.id" class="group cursor-pointer" @click="playSong(s)">
+        <div class="relative tc-cover-art">
+          <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
+          <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle"
+            :class="view === 'grid-sm' ? 'text-xl' : 'text-3xl'">
+            <Icon name="music" :size="view === 'grid-sm' ? 22 : 34" />
+          </div>
+          <!-- hover 播放按钮：整块覆盖，点击任何位置都能播 -->
+          <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
+            :title="`播放 ${s.title}`">
+            <span class="rounded-full bg-accent text-fg-inverse flex items-center justify-center"
+              :class="view === 'grid-sm' ? 'w-8 h-8' : 'w-11 h-11'">
+              <Icon name="play" :size="view === 'grid-sm' ? 14 : 18" />
+            </span>
+          </button>
+        </div>
+        <div class="mt-1.5 truncate" :class="view === 'grid-sm' ? 'text-[11px] text-fg-muted' : 'text-sm text-fg'"
+          :title="s.title">{{ s.title }}</div>
+        <div v-if="view !== 'grid-sm'" class="text-xs text-fg-muted truncate">{{ s.artist || '未知歌手' }}</div>
+      </div>
+    </div>
+
+    <!-- 轻提示 -->
+    <div v-if="message" class="tc-alert" :class="message.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
+      <Icon :name="message.ok ? 'check' : 'alert'" :size="15" class="mt-0.5" />
+      <span>{{ message.text }}</span>
     </div>
   </div>
 </template>
@@ -96,6 +115,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
 import { usePlayer, fmtTime } from '../composables/usePlayer.js';
+import Icon from '../components/Icon.vue';
 
 const player = usePlayer();
 const cur = computed(() => player.current.value);
@@ -108,9 +128,9 @@ const message = ref(null);
 
 /** 显示方式：列表 / 小图 / 中图 */
 const VIEWS = [
-  { id: 'list',    label: '列表', icon: '☰' },
-  { id: 'grid-sm', label: '小图', icon: '▦' },
-  { id: 'grid-md', label: '中图', icon: '▣' },
+  { id: 'list',    label: '列表', icon: 'list' },
+  { id: 'grid-sm', label: '小图', icon: 'gridSm' },
+  { id: 'grid-md', label: '中图', icon: 'grid' },
 ];
 const VIEW_KEY = 'tc.home.view';
 const view = ref(localStorage.getItem(VIEW_KEY) || 'grid-md');

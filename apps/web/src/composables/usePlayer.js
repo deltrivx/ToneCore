@@ -12,11 +12,15 @@ import { api } from './useApi.js';
  * 不回传服务端（除非要做「多设备接续播放」，那是另一个量级的需求）。
  */
 
-/** 循环模式 → 按钮图标与文案 */
+/**
+ * 循环模式 → 图标名与文案。
+ * icon 是 Icon.vue 的图标名（不是 emoji）—— emoji 在各系统字形不一，
+ * 是界面显得不专业的主要原因，统一走矢量图标。
+ */
 export const REPEAT_META = {
-  list:    { icon: '🔁', label: '列表循环' },
-  single:  { icon: '🔂', label: '单曲循环' },
-  shuffle: { icon: '🔀', label: '随机播放' },
+  list:    { icon: 'repeat',  label: '列表循环' },
+  single:  { icon: 'repeat1', label: '单曲循环' },
+  shuffle: { icon: 'shuffle', label: '随机播放' },
 };
 
 const state = reactive({

@@ -1,14 +1,16 @@
 <template>
   <div class="space-y-5">
-    <!-- ============ 顶部：云端搜索（曲库搜索框只负责搜云端；搜本地请去主页） ============ -->
+    <!-- ============ 顶部：云端搜索（本页只搜云端；搜本地去主页） ============ -->
     <div class="flex gap-2">
       <div class="relative flex-1">
-        <input v-model="onlineKwInput" class="tc-input w-full pl-8"
+        <Icon name="search" :size="15"
+          class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none" />
+        <input v-model="onlineKwInput" class="tc-input pl-9"
           placeholder="搜索云端歌曲 / 歌手（回车）" @keyup.enter="doOnlineSearch" />
-        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-600 text-xs">🔍</span>
       </div>
       <button class="tc-btn-primary shrink-0" :disabled="onlineSearching" @click="doOnlineSearch">
-        {{ onlineSearching ? '搜索中…' : '云端搜索' }}
+        <Icon name="search" :size="14" />
+        <span>{{ onlineSearching ? '搜索中…' : '云端搜索' }}</span>
       </button>
     </div>
 
@@ -20,119 +22,166 @@
       <!-- 头部：标题 + 统计 + 操作 -->
       <div class="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 class="text-xl font-semibold text-slate-100">曲库</h1>
-          <p class="text-sm text-slate-500 mt-0.5">
-            共 <span class="text-neon-soft font-mono">{{ data?.total ?? 0 }}</span> 首
-            <span class="text-slate-600">· 本地歌曲检索请到「主页」</span>
+          <h2 class="text-lg font-semibold text-fg">曲库</h2>
+          <p class="text-sm text-fg-muted mt-0.5">
+            共 <span class="tc-num text-accent">{{ data?.total ?? 0 }}</span> 首
+            <span class="text-fg-subtle">· 本地歌曲检索请到「主页」</span>
           </p>
         </div>
         <div class="flex gap-2 flex-wrap items-center">
-          <button class="tc-btn text-xs" :disabled="scanning" @click="scan">{{ scanning ? '扫描中…' : '扫描' }}</button>
-          <button class="tc-btn text-xs" :disabled="auditing" @click="audit">{{ auditing ? '审计中…' : '元数据审计' }}</button>
-          <button class="tc-btn text-xs" :disabled="backfilling" @click="backfill">{{ backfilling ? '补全中…' : '补全标签' }}</button>
+          <button class="tc-btn text-xs" :disabled="scanning" @click="scan">
+            <Icon name="scan" :size="14" />
+            <span>{{ scanning ? '扫描中…' : '扫描' }}</span>
+          </button>
+          <button class="tc-btn text-xs" :disabled="auditing" @click="audit">
+            <Icon name="info" :size="14" />
+            <span>{{ auditing ? '审计中…' : '元数据审计' }}</span>
+          </button>
+          <button class="tc-btn text-xs" :disabled="backfilling" @click="backfill">
+            <Icon name="pencil" :size="14" />
+            <span>{{ backfilling ? '补全中…' : '补全标签' }}</span>
+          </button>
         </div>
       </div>
 
       <!-- 失效曲目：文件被外部删除，索引里仍有残留 -->
       <div v-if="missingCount > 0"
-        class="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/[0.06]">
+        class="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-md border border-amber-500/30 bg-amber-500/[0.06]">
+        <Icon name="alert" :size="16" class="text-amber-300 shrink-0" />
         <span class="text-sm text-amber-300">
-          ⚠ 有 <b class="font-mono">{{ missingCount }}</b> 首曲目在磁盘上已不存在（文件被外部删除），仍残留在曲库中。
+          有 <b class="tc-num">{{ missingCount }}</b> 首曲目在磁盘上已不存在（文件被外部删除），仍残留在曲库中。
         </span>
         <button class="tc-btn text-xs border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
           :disabled="pruning" @click="prune">
           {{ pruning ? '清理中…' : '清理失效曲目' }}
         </button>
-        <button class="tc-icon-btn w-6 h-6 text-slate-500" title="重新检查" @click="checkMissing">↻</button>
+        <button class="tc-icon-btn tc-icon-btn-sm" title="重新检查" @click="checkMissing">
+          <Icon name="refresh" :size="14" />
+        </button>
       </div>
 
       <!-- 统计卡 -->
       <div v-if="stats" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">曲目</div><div class="text-lg font-semibold text-slate-100 font-mono">{{ stats.total }}</div></div>
-        <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">歌手</div><div class="text-lg font-semibold text-slate-100 font-mono">{{ stats.artists }}</div></div>
-        <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">专辑</div><div class="text-lg font-semibold text-slate-100 font-mono">{{ stats.albums }}</div></div>
-        <div class="tc-card p-3"><div class="text-xs text-slate-500 mb-0.5">今日新增</div><div class="text-lg font-semibold font-mono" :class="stats.addedToday>0?'text-neon-soft':'text-slate-100'">{{ stats.addedToday }}</div></div>
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">曲目</div>
+          <div class="text-lg font-semibold tc-num text-fg">{{ stats.total }}</div>
+        </div>
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">歌手</div>
+          <div class="text-lg font-semibold tc-num text-fg">{{ stats.artists }}</div>
+        </div>
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">专辑</div>
+          <div class="text-lg font-semibold tc-num text-fg">{{ stats.albums }}</div>
+        </div>
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">今日新增</div>
+          <div class="text-lg font-semibold tc-num" :class="stats.addedToday>0?'text-accent':'text-fg'">
+            {{ stats.addedToday }}
+          </div>
+        </div>
       </div>
 
       <!-- 审计 / 补全结果 -->
       <div v-if="auditResult" class="tc-card p-3 text-sm flex flex-wrap gap-4">
-        <span class="text-slate-400">检查 <b class="text-slate-200">{{ auditResult.checked }}</b> 首</span>
-        <span class="text-slate-400">缺封面 <b class="text-amber-400">{{ auditResult.missingCover }}</b></span>
-        <span class="text-slate-400">缺元数据 <b class="text-amber-400">{{ auditResult.missingMeta }}</b></span>
-        <span class="text-slate-400">缺歌词 <b class="text-amber-400">{{ auditResult.missingLyrics ?? 0 }}</b></span>
+        <span class="text-fg-muted">检查 <b class="text-fg tc-num">{{ auditResult.checked }}</b> 首</span>
+        <span class="text-fg-muted">缺封面 <b class="text-amber-400 tc-num">{{ auditResult.missingCover }}</b></span>
+        <span class="text-fg-muted">缺元数据 <b class="text-amber-400 tc-num">{{ auditResult.missingMeta }}</b></span>
+        <span class="text-fg-muted">缺歌词 <b class="text-amber-400 tc-num">{{ auditResult.missingLyrics ?? 0 }}</b></span>
       </div>
       <div v-if="backfillResult" class="tc-card p-3 text-sm flex flex-wrap gap-4">
-        <span class="text-slate-400">扫描 <b class="text-slate-200">{{ backfillResult.scanned }}</b></span>
-        <span class="text-slate-400">补全 <b class="text-emerald-400">{{ backfillResult.fixed }}</b></span>
-        <span class="text-slate-400">失败 <b class="text-slate-600">{{ backfillResult.failed }}</b></span>
+        <span class="text-fg-muted">扫描 <b class="text-fg tc-num">{{ backfillResult.scanned }}</b></span>
+        <span class="text-fg-muted">补全 <b class="text-emerald-400 tc-num">{{ backfillResult.fixed }}</b></span>
+        <span class="text-fg-muted">失败 <b class="text-fg-subtle tc-num">{{ backfillResult.failed }}</b></span>
       </div>
 
       <!-- ============ 歌单（歌单归曲库，不再占主页版面） ============ -->
       <section>
         <div class="flex items-baseline justify-between mb-3">
-          <h2 class="text-base font-semibold text-slate-100">歌单</h2>
-          <button class="text-xs text-slate-500 hover:text-neon-soft transition-colors" @click="createPlaylist">
-            ＋ 新建
+          <h3 class="tc-section-title">歌单</h3>
+          <button class="tc-btn-ghost text-xs" @click="createPlaylist">
+            <Icon name="plus" :size="14" />
+            <span>新建</span>
           </button>
         </div>
 
-        <div v-if="!playlists.length" class="rounded-xl border border-dashed border-ink-700 p-6 text-center">
-          <div class="text-sm text-slate-500">还没有歌单</div>
-          <div class="text-xs text-slate-600 mt-1">在下方曲目上点「⤓ 加入歌单」，或点右上角新建</div>
+        <div v-if="!playlists.length" class="tc-empty">
+          <div class="tc-empty-icon"><Icon name="disc" :size="22" /></div>
+          <div class="tc-empty-title">还没有歌单</div>
+          <div class="tc-empty-desc">在下方曲目上点「加入歌单」，或点右上角新建</div>
         </div>
 
         <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           <div v-for="pl in playlists" :key="pl.id" class="group cursor-pointer" @click="openPlaylist(pl)">
-            <div class="relative aspect-square rounded-lg overflow-hidden bg-ink-800 border border-ink-700/60">
+            <div class="relative tc-cover-art">
               <img v-if="pl.cover" :src="`/cover/${pl.cover}`" class="w-full h-full object-cover" loading="lazy" />
-              <div v-else class="w-full h-full flex items-center justify-center text-3xl text-slate-700">♫</div>
-              <div class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55">
-                <button class="w-11 h-11 rounded-full bg-gradient-to-br from-neon-dim to-neon
-                               text-ink-950 flex items-center justify-center shadow-glow"
-                  title="播放歌单" @click.stop="playPlaylist(pl)">▶</button>
+              <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
+                <Icon name="disc" :size="30" />
               </div>
+              <!-- hover 覆盖层：整块可点播放 -->
+              <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
+                title="播放歌单" @click.stop="playPlaylist(pl)">
+                <span class="w-11 h-11 rounded-full bg-accent text-fg-inverse flex items-center justify-center">
+                  <Icon name="play" :size="18" />
+                </span>
+              </button>
               <button class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-rose-300/80
-                             opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px]"
-                title="删除歌单" @click.stop="delPlaylist(pl)">✕</button>
+                             opacity-0 group-hover:opacity-100 flex items-center justify-center"
+                title="删除歌单" @click.stop="delPlaylist(pl)">
+                <Icon name="x" :size="13" />
+              </button>
             </div>
-            <div class="mt-2 text-sm text-slate-200 truncate">{{ pl.name }}</div>
-            <div class="text-xs text-slate-500">{{ pl.count }} 首</div>
+            <div class="mt-2 text-sm text-fg truncate">{{ pl.name }}</div>
+            <div class="text-xs tc-num text-fg-muted">{{ pl.count }} 首</div>
           </div>
         </div>
       </section>
 
-      <!-- 列表 -->
-      <div v-if="!data?.songs?.length" class="tc-card p-8 text-center text-sm text-slate-600">
-        曲库为空，点击「扫描」建立索引
+      <!-- ============ 曲目列表 ============ -->
+      <div v-if="!data?.songs?.length" class="tc-empty">
+        <div class="tc-empty-icon"><Icon name="folder" :size="22" /></div>
+        <div class="tc-empty-title">曲库为空</div>
+        <div class="tc-empty-desc">点击「扫描」建立索引</div>
       </div>
 
       <template v-else>
-        <div class="tc-card overflow-hidden divide-y divide-ink-800">
-          <div v-for="(s, i) in data.songs" :key="s.id"
-            class="px-2 sm:px-4 py-2 flex items-center gap-3 text-sm hover:bg-ink-800/50 transition-colors group cursor-pointer"
-            @click="openDetail(s)">
-            <div class="w-10 h-10 shrink-0 rounded-md overflow-hidden bg-ink-700 flex items-center justify-center relative">
+        <div class="tc-panel divide-y divide-line">
+          <div v-for="(s, i) in data.songs" :key="s.id" class="tc-row group" @click="openDetail(s)">
+            <div class="relative tc-cover tc-cover-sm">
               <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
-              <span v-else class="text-slate-500 text-sm font-medium">{{ initial(s) }}</span>
-              <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55 text-white text-sm" title="播放" @click.stop="play(s, i)">▶</button>
+              <span v-else class="text-[11px] font-medium text-fg-muted">{{ initial(s) }}</span>
+              <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55 text-white"
+                title="播放" @click.stop="play(s, i)">
+                <Icon name="play" :size="14" />
+              </button>
             </div>
             <div class="min-w-0 flex-1">
-              <div class="text-slate-200 truncate" :class="{ 'text-neon-soft': isCurrent(s) }">{{ s.title }}</div>
-              <div class="text-xs text-slate-500 truncate">{{ s.artist || '未知歌手' }}</div>
+              <div class="text-sm text-fg truncate" :class="{ 'text-accent': isCurrent(s) }">{{ s.title }}</div>
+              <div class="text-xs text-fg-muted truncate">{{ s.artist || '未知歌手' }}</div>
             </div>
-            <span class="text-slate-600 truncate hidden md:inline max-w-[150px] text-xs">{{ s.album }}</span>
-            <span class="font-mono text-[10px] text-slate-700 shrink-0 hidden lg:inline">{{ ext(s.filePath) }}</span>
-            <button class="tc-icon-btn shrink-0 opacity-0 group-hover:opacity-100 text-[10px]" title="加入队列" @click.stop="addOne(s)">＋</button>
-            <button class="tc-icon-btn shrink-0 opacity-0 group-hover:opacity-100 text-[10px]" title="加入歌单" @click.stop="openPick(s)">⤓</button>
-            <button class="tc-icon-btn shrink-0 opacity-0 group-hover:opacity-100 text-rose-400/70 hover:text-rose-400 text-xs" :disabled="deletingId===s.id" title="移入回收站" @click.stop="remove(s)">
-              <span>{{ deletingId===s.id ? '…' : '✕' }}</span>
+            <span class="text-fg-subtle truncate hidden md:inline max-w-[150px] text-xs">{{ s.album }}</span>
+            <span class="tc-num text-[10px] text-fg-subtle shrink-0 hidden lg:inline">{{ ext(s.filePath) }}</span>
+
+            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
+              title="加入队列" @click.stop="addOne(s)">
+              <Icon name="plus" :size="14" />
+            </button>
+            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
+              title="加入歌单" @click.stop="openPick(s)">
+              <Icon name="disc" :size="14" />
+            </button>
+            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100 text-rose-400/70 hover:text-rose-400"
+              :disabled="deletingId===s.id" title="移入回收站" @click.stop="remove(s)">
+              <Icon name="trash" :size="14" />
             </button>
           </div>
         </div>
 
         <!-- 分页 -->
         <div class="flex items-center justify-between gap-3 text-sm">
-          <span class="text-slate-600 text-xs">第 {{ offset + 1 }} – {{ Math.min(offset + PAGE, data.total) }} 条</span>
+          <span class="text-fg-subtle text-xs tc-num">
+            第 {{ offset + 1 }} – {{ Math.min(offset + PAGE, data.total) }} 条
+          </span>
           <div class="flex gap-2">
             <button class="tc-btn text-xs" :disabled="offset===0" @click="page(-1)">上一页</button>
             <button class="tc-btn text-xs" :disabled="offset + PAGE >= data.total" @click="page(1)">下一页</button>
@@ -145,49 +194,67 @@
     <div v-if="detail" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="detail = null">
       <div class="tc-card w-full max-w-md p-5 space-y-4">
         <div class="flex items-start gap-4">
-          <div class="w-20 h-20 shrink-0 rounded-lg overflow-hidden bg-ink-800 border border-ink-700 flex items-center justify-center">
+          <div class="w-20 h-20 shrink-0 tc-cover rounded-md">
             <img v-if="detail.cover" :src="`/cover/${detail.cover}`" class="w-full h-full object-cover" />
-            <span v-else class="text-2xl text-slate-700">♫</span>
+            <Icon v-else name="music" :size="26" class="text-fg-subtle" />
           </div>
           <div class="min-w-0 flex-1">
-            <div class="text-base text-slate-100 truncate">{{ detail.title }}</div>
-            <div class="text-sm text-slate-500 truncate">{{ detail.artist || '未知歌手' }}</div>
-            <div class="text-xs text-slate-600 truncate mt-1">专辑：{{ detail.album || '—' }}</div>
-            <div class="text-xs text-slate-600 truncate">时长：{{ detail.duration ? fmtTime(detail.duration) : '—' }}</div>
+            <div class="text-base text-fg truncate">{{ detail.title }}</div>
+            <div class="text-sm text-fg-muted truncate">{{ detail.artist || '未知歌手' }}</div>
+            <div class="text-xs text-fg-subtle truncate mt-1">专辑：{{ detail.album || '—' }}</div>
+            <div class="text-xs text-fg-subtle truncate">时长：{{ detail.duration ? fmtTime(detail.duration) : '—' }}</div>
           </div>
-          <button class="tc-icon-btn w-7 h-7 shrink-0" @click="detail = null">✕</button>
+          <button class="tc-icon-btn tc-icon-btn-sm shrink-0" @click="detail = null">
+            <Icon name="x" :size="15" />
+          </button>
         </div>
 
-        <div class="text-[11px] text-slate-600 font-mono truncate bg-ink-800/60 rounded px-2 py-1.5">
+        <div class="text-[11px] font-mono text-fg-subtle truncate bg-surface-overlay rounded px-2 py-1.5">
           路径：{{ detail.filePath }}
         </div>
 
         <div class="flex flex-wrap gap-2">
-          <button class="tc-btn-primary text-xs" @click="playDetail">播放</button>
-          <button class="tc-btn text-xs" :disabled="scraping" @click="scrapeDetail">
-            {{ scraping ? '刮削中…' : '重新刮削这首' }}
+          <button class="tc-btn-primary text-xs" @click="playDetail">
+            <Icon name="play" :size="14" />
+            <span>播放</span>
           </button>
-          <button class="tc-btn text-xs" @click="openPick(detail)">加入歌单</button>
-          <button class="tc-btn text-xs text-rose-400" :disabled="deletingId===detail.id" @click="remove(detail)">移入回收站</button>
+          <button class="tc-btn text-xs" :disabled="scraping" @click="scrapeDetail">
+            <Icon name="refresh" :size="14" />
+            <span>{{ scraping ? '刮削中…' : '重新刮削这首' }}</span>
+          </button>
+          <button class="tc-btn text-xs" @click="openPick(detail)">
+            <Icon name="disc" :size="14" />
+            <span>加入歌单</span>
+          </button>
+          <button class="tc-btn-danger text-xs" :disabled="deletingId===detail.id" @click="remove(detail)">
+            <Icon name="trash" :size="14" />
+            <span>移入回收站</span>
+          </button>
         </div>
 
-        <div v-if="scrapeMsg" class="text-xs rounded px-2.5 py-1.5" :class="scrapeMsg.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'">
-          {{ scrapeMsg.text }}
+        <div v-if="scrapeMsg" class="tc-alert" :class="scrapeMsg.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
+          <Icon :name="scrapeMsg.ok ? 'check' : 'alert'" :size="15" class="mt-0.5" />
+          <span>{{ scrapeMsg.text }}</span>
         </div>
       </div>
     </div>
 
-    <!-- 加入歌单：选择浮层（与主页共用逻辑） -->
+    <!-- 加入歌单：选择浮层 -->
     <div v-if="pickSong" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="pickSong = null">
       <div class="tc-card w-full max-w-sm p-4 space-y-3">
-        <div class="text-sm font-medium text-slate-200 flex items-center justify-between">
-          <span>加入歌单：{{ pickSong.title }}</span>
-          <button class="tc-icon-btn w-6 h-6" @click="pickSong = null">✕</button>
+        <div class="text-sm font-medium text-fg flex items-center justify-between gap-2">
+          <span class="truncate">加入歌单：{{ pickSong.title }}</span>
+          <button class="tc-icon-btn tc-icon-btn-sm shrink-0" @click="pickSong = null">
+            <Icon name="x" :size="14" />
+          </button>
         </div>
-        <div v-if="!playlists.length" class="text-xs text-slate-600 py-2">还没有歌单，可点下方「新建歌单并加入」。</div>
+        <div v-if="!playlists.length" class="text-xs text-fg-subtle py-2">还没有歌单，可点下方「新建歌单并加入」。</div>
         <div v-else class="max-h-[50vh] overflow-y-auto space-y-1">
-          <button v-for="pl in playlists" :key="pl.id" class="w-full text-left px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-ink-800"
-            @click="addToPlaylist(pl)">{{ pl.name }} <span class="text-slate-600 text-[11px]">（{{ pl.count }}）</span></button>
+          <button v-for="pl in playlists" :key="pl.id"
+            class="w-full text-left px-3 py-2 rounded-md text-sm text-fg-muted hover:bg-white/[0.06] hover:text-fg"
+            @click="addToPlaylist(pl)">
+            {{ pl.name }} <span class="text-fg-subtle text-[11px] tc-num">（{{ pl.count }}）</span>
+          </button>
         </div>
         <button class="tc-btn-primary w-full text-xs" @click="createAndAdd">新建歌单并加入</button>
       </div>
@@ -196,47 +263,60 @@
     <!-- ============ 歌单详情浮层 ============ -->
     <div v-if="activePlaylist" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4"
       @click.self="activePlaylist = null">
-      <div class="w-full sm:max-w-lg max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl
-                  border border-ink-700 bg-ink-900 overflow-hidden">
-        <div class="px-4 py-3 border-b border-ink-700 flex items-center gap-3">
-          <div class="w-10 h-10 rounded-md overflow-hidden bg-ink-800 shrink-0 flex items-center justify-center">
+      <div class="w-full sm:max-w-lg max-h-[80vh] flex flex-col rounded-t-xl sm:rounded-xl
+                  border border-line bg-surface-raised overflow-hidden">
+        <div class="px-4 py-3 border-b border-line flex items-center gap-3">
+          <div class="w-10 h-10 shrink-0 tc-cover rounded-md">
             <img v-if="activePlaylist.cover" :src="`/cover/${activePlaylist.cover}`" class="w-full h-full object-cover" />
-            <span v-else class="text-slate-600">♫</span>
+            <Icon v-else name="disc" :size="18" class="text-fg-subtle" />
           </div>
           <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium text-slate-100 truncate">{{ activePlaylist.name }}</div>
-            <div class="text-xs text-slate-500">{{ activeTracks.length }} 首</div>
+            <div class="text-sm font-medium text-fg truncate">{{ activePlaylist.name }}</div>
+            <div class="text-xs tc-num text-fg-muted">{{ activeTracks.length }} 首</div>
           </div>
-          <button class="tc-btn text-xs" :disabled="!activeTracks.length" @click="playPlaylist(activePlaylist)">▶ 播放</button>
-          <button class="tc-icon-btn w-7 h-7" @click="activePlaylist = null">✕</button>
+          <button class="tc-btn text-xs" :disabled="!activeTracks.length" @click="playPlaylist(activePlaylist)">
+            <Icon name="play" :size="13" />
+            <span>播放</span>
+          </button>
+          <button class="tc-icon-btn tc-icon-btn-sm" @click="activePlaylist = null">
+            <Icon name="x" :size="15" />
+          </button>
         </div>
 
-        <div class="flex-1 overflow-y-auto divide-y divide-ink-800">
-          <div v-if="!activeTracks.length" class="px-4 py-8 text-center text-xs text-slate-600">
-            歌单还是空的，在曲库列表上点「⤓ 加入歌单」
+        <div class="flex-1 min-h-0 overflow-y-auto divide-y divide-line">
+          <div v-if="!activeTracks.length" class="tc-empty">
+            <div class="tc-empty-icon"><Icon name="disc" :size="20" /></div>
+            <div class="tc-empty-title">歌单还是空的</div>
+            <div class="tc-empty-desc">在曲库列表上点「加入歌单」</div>
           </div>
-          <div v-for="(s, i) in activeTracks" :key="s.id"
-            class="px-4 py-2.5 flex items-center gap-3 text-sm hover:bg-ink-800/60 group">
-            <span class="w-5 shrink-0 text-center font-mono text-xs"
-              :class="isCurrent(s) ? 'text-neon' : 'text-slate-700'">{{ i + 1 }}</span>
-            <div class="w-8 h-8 shrink-0 rounded overflow-hidden bg-ink-800 flex items-center justify-center">
+          <div v-for="(s, i) in activeTracks" :key="s.id" class="tc-row group">
+            <span class="w-5 shrink-0 text-center tc-num text-xs"
+              :class="isCurrent(s) ? 'text-accent' : 'text-fg-subtle'">{{ i + 1 }}</span>
+            <div class="tc-cover tc-cover-sm">
               <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
+              <Icon v-else name="music" :size="13" class="text-fg-subtle" />
             </div>
             <div class="min-w-0 flex-1">
-              <div class="truncate" :class="isCurrent(s) ? 'text-neon-soft' : 'text-slate-200'">{{ s.title }}</div>
-              <div class="text-xs text-slate-500 truncate">{{ s.artist || '未知歌手' }}</div>
+              <div class="text-sm truncate" :class="isCurrent(s) ? 'text-accent' : 'text-fg'">{{ s.title }}</div>
+              <div class="text-xs text-fg-muted truncate">{{ s.artist || '未知歌手' }}</div>
             </div>
-            <button class="tc-icon-btn w-6 h-6 shrink-0 opacity-0 group-hover:opacity-100 text-[10px]"
-              title="播放" @click="playTrackAt(activePlaylist, i)">▶</button>
-            <button class="tc-icon-btn w-6 h-6 shrink-0 opacity-0 group-hover:opacity-100 text-[10px] text-rose-400/70"
-              title="移出歌单" @click="removeTrack(activePlaylist, s)">✕</button>
+            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
+              title="播放" @click="playTrackAt(activePlaylist, i)">
+              <Icon name="play" :size="14" />
+            </button>
+            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100 text-rose-400/70"
+              title="移出歌单" @click="removeTrack(activePlaylist, s)">
+              <Icon name="x" :size="14" />
+            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <div v-if="message" class="tc-card p-3 text-sm" :class="message.ok ? 'text-emerald-400' : 'text-amber-400'">
-      {{ message.text }}
+    <!-- 轻提示 -->
+    <div v-if="message" class="tc-alert" :class="message.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
+      <Icon :name="message.ok ? 'check' : 'alert'" :size="15" class="mt-0.5" />
+      <span>{{ message.text }}</span>
     </div>
   </div>
 </template>
@@ -246,6 +326,7 @@ import { ref, computed, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
 import { usePlayer, fmtTime } from '../composables/usePlayer.js';
 import OnlineSearch from '../components/OnlineSearch.vue';
+import Icon from '../components/Icon.vue';
 
 const PAGE = 50;
 const player = usePlayer();

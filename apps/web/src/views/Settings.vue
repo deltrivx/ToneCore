@@ -2,29 +2,29 @@
   <!-- 不再用 max-w-2xl：宽屏下右半边会整片空白。改为两列栅格填满可用宽度 -->
   <div class="space-y-5">
     <div>
-      <h1 class="text-xl font-semibold text-slate-100">设置</h1>
-      <p class="text-sm text-slate-500 mt-0.5">中枢运行参数</p>
+      <h1 class="text-xl font-semibold text-fg">设置</h1>
+      <p class="text-sm text-fg-subtle mt-0.5">中枢运行参数</p>
     </div>
 
-    <div v-if="!cfg" class="tc-card p-6 text-sm text-slate-600">加载中…</div>
+    <div v-if="!cfg" class="tc-card p-6 text-sm text-fg-subtle">加载中…</div>
 
     <template v-else>
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
         <!-- ============ 左列 ============ -->
         <div class="space-y-5">
       <div class="tc-card p-4 space-y-4">
-        <div class="text-sm font-medium text-slate-300 border-b border-ink-700 pb-2">落库策略</div>
+        <div class="text-sm font-medium text-fg-muted border-b border-line pb-2">落库策略</div>
 
         <label class="flex items-center justify-between gap-4 cursor-pointer">
           <div>
-            <div class="text-sm text-slate-300">点播自动落库</div>
-            <div class="text-xs text-slate-600 mt-0.5">播放网络歌曲时自动保存到本地</div>
+            <div class="text-sm text-fg-muted">点播自动落库</div>
+            <div class="text-xs text-fg-subtle mt-0.5">播放网络歌曲时自动保存到本地</div>
           </div>
           <input type="checkbox" v-model="cfg.autoFetch"
-            class="w-10 h-5 appearance-none rounded-full bg-ink-700 checked:bg-neon-dim
+            class="w-10 h-5 appearance-none rounded-full bg-surface-overlay checked:bg-accent
                    relative transition-colors cursor-pointer
                    before:content-[''] before:absolute before:top-0.5 before:left-0.5
-                   before:w-4 before:h-4 before:rounded-full before:bg-slate-300
+                   before:w-4 before:h-4 before:rounded-full before:bg-fg
                    before:transition-transform checked:before:translate-x-5" />
         </label>
 
@@ -42,7 +42,7 @@
         <div>
           <label class="tc-label">落盘路径模板</label>
           <input v-model="cfg.pathTemplate" class="tc-input font-mono text-xs" />
-          <div class="text-xs text-slate-600 mt-1">
+          <div class="text-xs text-fg-subtle mt-1">
             可用变量：<code class="tc-badge text-[10px]">{'{artist}'}</code>
             <code class="tc-badge text-[10px]">{'{album}'}</code>
             <code class="tc-badge text-[10px]">{'{title}'}</code>
@@ -62,34 +62,34 @@
 
         <label class="flex items-center justify-between gap-4 cursor-pointer">
           <div>
-            <div class="text-sm text-slate-300">嵌入标签与封面</div>
-            <div class="text-xs text-slate-600 mt-0.5">落库后自动写入 ID3 / Vorbis 标签与专辑封面</div>
+            <div class="text-sm text-fg-muted">嵌入标签与封面</div>
+            <div class="text-xs text-fg-subtle mt-0.5">落库后自动写入 ID3 / Vorbis 标签与专辑封面</div>
           </div>
           <input type="checkbox" v-model="cfg.embedMetadata"
-            class="w-10 h-5 appearance-none rounded-full bg-ink-700 checked:bg-neon-dim
+            class="w-10 h-5 appearance-none rounded-full bg-surface-overlay checked:bg-accent
                    relative transition-colors cursor-pointer
                    before:content-[''] before:absolute before:top-0.5 before:left-0.5
-                   before:w-4 before:h-4 before:rounded-full before:bg-slate-300
+                   before:w-4 before:h-4 before:rounded-full before:bg-fg
                    before:transition-transform checked:before:translate-x-5" />
         </label>
 
         <label class="flex items-center justify-between gap-4 cursor-pointer">
           <div>
-            <div class="text-sm text-slate-300">写入歌词</div>
-            <div class="text-xs text-slate-600 mt-0.5">同时写入标签与同名 .lrc 文件</div>
+            <div class="text-sm text-fg-muted">写入歌词</div>
+            <div class="text-xs text-fg-subtle mt-0.5">同时写入标签与同名 .lrc 文件</div>
           </div>
           <input type="checkbox" v-model="cfg.writeLyrics"
-            class="w-10 h-5 appearance-none rounded-full bg-ink-700 checked:bg-neon-dim
+            class="w-10 h-5 appearance-none rounded-full bg-surface-overlay checked:bg-accent
                    relative transition-colors cursor-pointer
                    before:content-[''] before:absolute before:top-0.5 before:left-0.5
-                   before:w-4 before:h-4 before:rounded-full before:bg-slate-300
+                   before:w-4 before:h-4 before:rounded-full before:bg-fg
                    before:transition-transform checked:before:translate-x-5" />
         </label>
       </div>
 
       <div class="tc-card p-4 space-y-4">
-        <div class="text-sm font-medium text-slate-300 border-b border-ink-700 pb-2">平台优先级</div>
-        <div class="text-xs text-slate-600">越靠前越优先（拖拽排序暂未实现，直接编辑逗号分隔）</div>
+        <div class="text-sm font-medium text-fg-muted border-b border-line pb-2">平台优先级</div>
+        <div class="text-xs text-fg-subtle">越靠前越优先（拖拽排序暂未实现，直接编辑逗号分隔）</div>
         <input :value="cfg.platforms.join(', ')" class="tc-input font-mono text-xs"
           @input="e => cfg.platforms = e.target.value.split(',').map(s => s.trim()).filter(Boolean)" />
       </div>
@@ -99,9 +99,9 @@
         <div class="space-y-5">
       <!-- ============ 账号管理：改账号 / 密码 / 昵称，全部落库持久化 ============ -->
       <div class="tc-card p-4 space-y-3">
-        <div class="flex items-center justify-between border-b border-white/[0.06] pb-2">
-          <div class="text-sm font-medium text-slate-300">账号</div>
-          <span class="text-[11px] text-slate-600">保存在数据库，重启不丢</span>
+        <div class="flex items-center justify-between border-b border-line pb-2">
+          <div class="text-sm font-medium text-fg-muted">账号</div>
+          <span class="text-[11px] text-fg-subtle">保存在数据库，重启不丢</span>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
@@ -136,11 +136,11 @@
           <button class="tc-btn-primary text-xs" :disabled="acctBusy" @click="saveAccount">
             {{ acctBusy ? '保存中…' : '保存账号设置' }}
           </button>
-          <span class="text-[11px] text-slate-600">改账号名或密码后需要重新登录</span>
+          <span class="text-[11px] text-fg-subtle">改账号名或密码后需要重新登录</span>
         </div>
 
         <!-- 挂载路径：把「为什么会持久化」讲清楚 -->
-        <div class="text-[11px] text-slate-600 leading-relaxed border-t border-white/[0.06] pt-2 space-y-0.5">
+        <div class="text-[11px] text-fg-subtle leading-relaxed border-t border-line pt-2 space-y-0.5">
           <div>数据库文件：<code class="tc-badge text-[10px]">{{ cfg.dataDir || '/data' }}/tonecore.db</code></div>
           <div>持久化方式：把宿主目录挂载到容器的 <code class="tc-badge text-[10px]">/data</code>，重建容器数据不丢</div>
           <div>用户信息、播放进度、播放历史、歌单均存在该库中</div>
@@ -149,34 +149,34 @@
 
       <!-- 关于：版本、数据位置、项目信息 -->
       <div class="tc-card p-4 space-y-3">
-        <div class="text-sm font-medium text-slate-300 border-b border-ink-700 pb-2">关于</div>
+        <div class="text-sm font-medium text-fg-muted border-b border-line pb-2">关于</div>
 
         <div class="flex items-center gap-3">
           <!-- 用绑定常量而非字面量 src：否则 Vite 会把它当模块去解析（public 下的资源不该被打包） -->
-          <img :src="ICON" alt="ToneCore" class="w-11 h-11 rounded-xl shrink-0" />
+          <img :src="ICON" alt="ToneCore" class="w-11 h-11 rounded-lg shrink-0" />
           <div class="min-w-0">
-            <div class="text-sm text-slate-200">ToneCore</div>
-            <div class="text-xs text-slate-500">无头音乐中枢 · 语音点歌 / 本地曲库 / 全网音源</div>
+            <div class="text-sm text-fg">ToneCore</div>
+            <div class="text-xs text-fg-subtle">无头音乐中枢 · 语音点歌 / 本地曲库 / 全网音源</div>
           </div>
           <span class="tc-badge ml-auto text-[10px]">v{{ about?.version || '-' }}</span>
         </div>
 
         <dl class="grid grid-cols-1 gap-2 text-xs">
           <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-slate-600">已装音源</dt>
-            <dd class="font-mono text-slate-300">{{ about?.sources ?? '-' }} 个脚本</dd>
+            <dt class="w-20 shrink-0 text-fg-subtle">已装音源</dt>
+            <dd class="font-mono text-fg-muted">{{ about?.sources ?? '-' }} 个脚本</dd>
           </div>
           <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-slate-600">曲库</dt>
-            <dd class="font-mono text-slate-300">{{ about?.library ?? '-' }} 首</dd>
+            <dt class="w-20 shrink-0 text-fg-subtle">曲库</dt>
+            <dd class="font-mono text-fg-muted">{{ about?.library ?? '-' }} 首</dd>
           </div>
           <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-slate-600">音乐目录</dt>
-            <dd class="font-mono text-slate-400 truncate">{{ cfg.musicDir || cfg.music_dir || '-' }}</dd>
+            <dt class="w-20 shrink-0 text-fg-subtle">音乐目录</dt>
+            <dd class="font-mono text-fg-muted truncate">{{ cfg.musicDir || cfg.music_dir || '-' }}</dd>
           </div>
           <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-slate-600">数据目录</dt>
-            <dd class="font-mono text-slate-400 truncate">{{ cfg.dataDir || cfg.data_dir || '-' }}</dd>
+            <dt class="w-20 shrink-0 text-fg-subtle">数据目录</dt>
+            <dd class="font-mono text-fg-muted truncate">{{ cfg.dataDir || cfg.data_dir || '-' }}</dd>
           </div>
         </dl>
 
@@ -189,26 +189,26 @@
             class="tc-btn text-xs">反馈问题</a>
         </div>
 
-        <div class="text-[11px] text-slate-600 leading-relaxed border-t border-ink-700 pt-2">
+        <div class="text-[11px] text-fg-subtle leading-relaxed border-t border-line pt-2">
           音源脚本遵循洛雪（LX Music）自定义源协议，由第三方维护，本项目的运行时负责加载与取链。
         </div>
       </div>
 
       <div class="tc-card p-4 space-y-4">
-        <div class="flex items-center justify-between border-b border-ink-700 pb-2">
-          <div class="text-sm font-medium text-slate-300">小爱音箱接入</div>
+        <div class="flex items-center justify-between border-b border-line pb-2">
+          <div class="text-sm font-medium text-fg-muted">小爱音箱接入</div>
           <div class="flex items-center gap-2">
-            <span class="text-[11px]" :class="spk?.enabled ? 'text-emerald-400' : 'text-slate-600'">
+            <span class="text-[11px]" :class="spk?.enabled ? 'text-emerald-400' : 'text-fg-subtle'">
               {{ spk?.enabled ? '监听中' : '未监听' }}
             </span>
             <span class="text-[11px] px-2 py-0.5 rounded-full"
-              :class="spk?.loggedIn ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-600/20 text-slate-500'">
+              :class="spk?.loggedIn ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/[0.08] text-fg-subtle'">
               {{ spk?.loggedIn ? '已登录' : '未登录' }}
             </span>
           </div>
         </div>
 
-        <div class="text-xs text-slate-600">
+        <div class="text-xs text-fg-subtle">
           填写小米账号与密码即可登录，登录后设备与凭据自动获取（凭据保存在本地 /data/speaker.yaml，权限 600）。
         </div>
 
@@ -228,7 +228,7 @@
           </div>
 
           <!-- 需要验证码 -->
-          <div v-if="needVerify" class="space-y-3 rounded-lg bg-ink-800/60 p-3">
+          <div v-if="needVerify" class="space-y-3 rounded-lg bg-surface-overlay p-3">
             <div class="text-xs text-amber-400">需要短信 / 邮箱验证码</div>
             <div>
               <label class="tc-label">验证码</label>
@@ -250,10 +250,10 @@
 
         <!-- 已登录：账号信息 + 设备列表 -->
         <template v-else>
-          <div class="flex items-center justify-between gap-3 rounded-lg bg-ink-800/60 px-3 py-2">
+          <div class="flex items-center justify-between gap-3 rounded-lg bg-surface-overlay px-3 py-2">
             <div class="min-w-0">
-              <div class="text-sm text-slate-300">{{ spk?.account || '已登录' }}</div>
-              <div class="text-[11px] text-slate-600 font-mono truncate">
+              <div class="text-sm text-fg-muted">{{ spk?.account || '已登录' }}</div>
+              <div class="text-[11px] text-fg-subtle font-mono truncate">
                 userId {{ spk?.userId }} · {{ devices.length }} 台设备
               </div>
             </div>
@@ -262,15 +262,15 @@
 
           <div v-if="devices.length" class="space-y-2">
             <div v-for="dev in devices" :key="dev.id"
-              class="rounded-lg bg-ink-800/60 px-3 py-2 space-y-2">
+              class="rounded-lg bg-surface-overlay px-3 py-2 space-y-2">
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="text-sm text-slate-300 truncate">
+                  <div class="text-sm text-fg-muted truncate">
                     {{ dev.name || dev.id }}
                     <span v-if="dev.online" class="text-[10px] text-emerald-400 ml-1">在线</span>
-                    <span v-else class="text-[10px] text-slate-600 ml-1">离线</span>
+                    <span v-else class="text-[10px] text-fg-subtle ml-1">离线</span>
                   </div>
-                  <div class="text-[11px] text-slate-600 font-mono truncate">{{ dev.id }}</div>
+                  <div class="text-[11px] text-fg-subtle font-mono truncate">{{ dev.id }}</div>
                 </div>
                 <button class="tc-btn text-xs shrink-0" :disabled="busy" @click="testSay(dev.id)">试播语音</button>
               </div>
@@ -281,19 +281,19 @@
                 <button class="tc-btn text-xs py-1 px-2" :disabled="busy" @click="ctl(dev.id, 'play')">继续</button>
                 <button class="tc-btn text-xs py-1 px-2" :disabled="busy" @click="ctl(dev.id, 'next')">下一首</button>
                 <button class="tc-btn text-xs py-1 px-2" :disabled="busy" @click="ctl(dev.id, 'stop')">停止</button>
-                <span class="text-[10px] text-slate-600 ml-1">音量</span>
+                <span class="text-[10px] text-fg-subtle ml-1">音量</span>
                 <button class="tc-btn text-xs py-1 px-2" :disabled="busy" @click="vol(dev.id, -15)">－</button>
                 <button class="tc-btn text-xs py-1 px-2" :disabled="busy" @click="vol(dev.id, 15)">＋</button>
               </div>
-              <div v-if="nowPlaying[dev.id]" class="text-[11px] text-slate-500 truncate">
+              <div v-if="nowPlaying[dev.id]" class="text-[11px] text-fg-subtle truncate">
                 正在播放：{{ nowPlaying[dev.id].artist }} — {{ nowPlaying[dev.id].title }}
-                <span class="text-slate-700 font-mono">
+                <span class="text-fg-subtle font-mono">
                   （队列 {{ nowPlaying[dev.id].queueIndex + 1 }}/{{ nowPlaying[dev.id].queueSize }}）
                 </span>
               </div>
             </div>
           </div>
-          <div v-else class="text-xs text-slate-600">
+          <div v-else class="text-xs text-fg-subtle">
             暂无设备。若音箱未上线，请先在米家 App 确认设备在线。
           </div>
 
@@ -306,12 +306,12 @@
               </div>
               <div class="flex items-end">
                 <label class="flex items-center justify-between gap-3 cursor-pointer w-full pb-2">
-                  <span class="text-sm text-slate-300">监听开关</span>
+                  <span class="text-sm text-fg-muted">监听开关</span>
                   <input type="checkbox" v-model="spkForm.monitorEnabled"
-                    class="w-10 h-5 appearance-none rounded-full bg-ink-700 checked:bg-neon-dim
+                    class="w-10 h-5 appearance-none rounded-full bg-surface-overlay checked:bg-accent
                            relative transition-colors cursor-pointer
                            before:content-[''] before:absolute before:top-0.5 before:left-0.5
-                           before:w-4 before:h-4 before:rounded-full before:bg-slate-300
+                           before:w-4 before:h-4 before:rounded-full before:bg-fg
                            before:transition-transform checked:before:translate-x-5" />
                 </label>
               </div>
@@ -324,7 +324,7 @@
                 <span v-for="(w, i) in spkForm.wakeWords" :key="w + i"
                   class="tc-badge text-[11px] cursor-pointer hover:text-rose-400"
                   title="点击删除" @click="removeWakeWord(i)">{{ w }} ✕</span>
-                <span v-if="!spkForm.wakeWords.length" class="text-xs text-slate-600">未设置，将使用默认唤醒词</span>
+                <span v-if="!spkForm.wakeWords.length" class="text-xs text-fg-subtle">未设置，将使用默认唤醒词</span>
               </div>
               <input v-model="newWakeWord" class="tc-input font-mono text-xs"
                 placeholder="例如：播放 / 我想听 / 放一首（回车添加）" @keyup.enter="addWakeWord" />
@@ -333,15 +333,15 @@
             <!-- 生效设备：勾选后才由中枢接管 -->
             <div>
               <label class="tc-label">生效设备（不勾选=不接管）</label>
-              <div v-if="!devices.length" class="text-xs text-slate-600">暂无设备，登录后自动获取</div>
+              <div v-if="!devices.length" class="text-xs text-fg-subtle">暂无设备，登录后自动获取</div>
               <div v-else class="space-y-1.5">
                 <label v-for="dev in devices" :key="dev.id"
-                  class="flex items-center gap-3 cursor-pointer rounded-lg px-2.5 py-1.5 bg-ink-800/50">
+                  class="flex items-center gap-3 cursor-pointer rounded-lg px-2.5 py-1.5 bg-surface-overlay/50">
                   <input type="checkbox" :value="dev.id" v-model="spkForm.deviceIds"
-                    class="w-4 h-4 accent-[color:var(--tc-neon,#4fc3f7)]" />
-                  <span class="text-sm text-slate-300 truncate">{{ dev.name || dev.id }}</span>
+                    class="w-4 h-4 accent-accent" />
+                  <span class="text-sm text-fg-muted truncate">{{ dev.name || dev.id }}</span>
                   <span class="text-[10px] ml-auto shrink-0"
-                    :class="dev.online ? 'text-emerald-400' : 'text-slate-600'">
+                    :class="dev.online ? 'text-emerald-400' : 'text-fg-subtle'">
                     {{ dev.online ? '在线' : '离线' }}
                   </span>
                 </label>
