@@ -33,6 +33,57 @@ export interface SpeakerConfig extends Partial<MinaConfig> {
   wakeWords: string[];
   /** 登录 token 过期时间戳（毫秒） */
   tokenExpiresAt?: number;
+
+  // ---------- 以下对齐 SongLoft MIoT 插件的可配置项 ----------
+  // 只搬「对 ToneCore 有意义」的项。SongLoft 自身架构相关的
+  // （server_host / external_search_* / default_cover_id 等）不搬 ——
+  // 那些指向 SongLoft 自己的服务与资源，在 ToneCore 里没有对应物。
+
+  /** 语音指令解析（关闭后只推流，不解析点歌意图） */
+  voiceCommandEnabled: boolean;
+  /** 语音上下文记忆（「上一首 / 下一首」依赖它） */
+  voiceMemoryEnabled: boolean;
+  voiceMemoryMaxRecords: number;
+  scheduledTasksEnabled: boolean;
+  timezone: string;
+
+  /** 强制转 MP3（部分老音箱不支持 FLAC） */
+  forceMp3: boolean;
+  radioForceMp3: boolean;
+  /** 音量归一化 */
+  volumeNormalize: boolean;
+  /** 切歌偏移（秒） */
+  songTransitionOffset: number;
+
+  /** 选源策略：parallel=并发 / sequential=顺序 */
+  searchPriority: 'parallel' | 'sequential';
+  /** 单条指令最多取第几首 */
+  maxSongIndex: number;
+
+  indicatorLightEnabled: boolean;
+  /** 触屏音箱显示歌词 */
+  touchscreenLyricsEnabled: boolean;
+
+  /** 搜索中语音提示 */
+  interruptTtsHintEnabled: boolean;
+  interruptTtsHintText: string;
+  /** 播放前播报 */
+  playAnnouncementEnabled: boolean;
+  playAnnouncementTemplate: string;
+  playAnnouncementWaitMode: 'auto' | 'fixed';
+  playAnnouncementDelay: number;
+  playAnnouncementScope: 'voice' | 'all';
+
+  /** 智能续播超时（秒） */
+  smartResumeTimeout: number;
+  debugLogEnabled: boolean;
+
+  /** AI 意图兜底（可选）。aiApiKey 只由用户在界面填写，不从任何外部配置复制。 */
+  aiEnabled: boolean;
+  aiApiUrl: string;
+  aiApiKey: string;
+  aiModel: string;
+  aiTimeout: number;
 }
 
 /** 账号脱敏：13035699603 -> 130****03 */
@@ -46,6 +97,40 @@ const DEFAULT_CFG: SpeakerConfig = {
   deviceIds: [],
   pollInterval: 1,
   wakeWords: ['播放', '放一首', '来一首', '我想听', '放首'],
+
+  voiceCommandEnabled: true,
+  voiceMemoryEnabled: true,
+  voiceMemoryMaxRecords: 100,
+  scheduledTasksEnabled: false,
+  timezone: 'Asia/Shanghai',
+
+  forceMp3: false,
+  radioForceMp3: false,
+  volumeNormalize: false,
+  songTransitionOffset: 0,
+
+  searchPriority: 'parallel',
+  maxSongIndex: 10000,
+
+  indicatorLightEnabled: true,
+  touchscreenLyricsEnabled: false,
+
+  interruptTtsHintEnabled: false,
+  interruptTtsHintText: '正在搜索，请稍候',
+  playAnnouncementEnabled: false,
+  playAnnouncementTemplate: '即将播放{artist}的{song}',
+  playAnnouncementWaitMode: 'auto',
+  playAnnouncementDelay: 3,
+  playAnnouncementScope: 'voice',
+
+  smartResumeTimeout: 30,
+  debugLogEnabled: false,
+
+  aiEnabled: false,
+  aiApiUrl: '',
+  aiApiKey: '',
+  aiModel: '',
+  aiTimeout: 6,
 };
 
 /** 点歌指令解析结果 */
@@ -206,6 +291,43 @@ export class SpeakerService {
       wakeWords: this.cfg.wakeWords,
       deviceIds: this.cfg.deviceIds,
       tokenExpiresAt: this.cfg.tokenExpiresAt ?? null,
+
+      // 对齐 SongLoft MIoT 的可配置项（前端音箱设置区直接渲染）
+      voiceCommandEnabled: this.cfg.voiceCommandEnabled,
+      voiceMemoryEnabled: this.cfg.voiceMemoryEnabled,
+      voiceMemoryMaxRecords: this.cfg.voiceMemoryMaxRecords,
+      scheduledTasksEnabled: this.cfg.scheduledTasksEnabled,
+      timezone: this.cfg.timezone,
+
+      forceMp3: this.cfg.forceMp3,
+      radioForceMp3: this.cfg.radioForceMp3,
+      volumeNormalize: this.cfg.volumeNormalize,
+      songTransitionOffset: this.cfg.songTransitionOffset,
+
+      searchPriority: this.cfg.searchPriority,
+      maxSongIndex: this.cfg.maxSongIndex,
+
+      indicatorLightEnabled: this.cfg.indicatorLightEnabled,
+      touchscreenLyricsEnabled: this.cfg.touchscreenLyricsEnabled,
+
+      interruptTtsHintEnabled: this.cfg.interruptTtsHintEnabled,
+      interruptTtsHintText: this.cfg.interruptTtsHintText,
+      playAnnouncementEnabled: this.cfg.playAnnouncementEnabled,
+      playAnnouncementTemplate: this.cfg.playAnnouncementTemplate,
+      playAnnouncementWaitMode: this.cfg.playAnnouncementWaitMode,
+      playAnnouncementDelay: this.cfg.playAnnouncementDelay,
+      playAnnouncementScope: this.cfg.playAnnouncementScope,
+
+      smartResumeTimeout: this.cfg.smartResumeTimeout,
+      debugLogEnabled: this.cfg.debugLogEnabled,
+
+      aiEnabled: this.cfg.aiEnabled,
+      aiApiUrl: this.cfg.aiApiUrl,
+      // 只回传「有没有配」和尾部 4 位，不回传完整密钥
+      aiApiKeySet: !!this.cfg.aiApiKey,
+      aiApiKeyHint: this.cfg.aiApiKey ? '…' + this.cfg.aiApiKey.slice(-4) : '',
+      aiModel: this.cfg.aiModel,
+      aiTimeout: this.cfg.aiTimeout,
     };
   }
 
@@ -270,8 +392,28 @@ export class SpeakerService {
     logger.info('音箱账号已退出');
   }
 
-  configure(cfg: Partial<SpeakerConfig>) {
-    this.cfg = { ...this.cfg, ...cfg };
+  /**
+   * 更新音箱配置。
+   *
+   * 注意 `aiApiKey`：status 只回传脱敏提示（aiApiKeySet / aiApiKeyHint），
+   * 前端表单若把整个 status 原样回传，会把 '…ca0f' 这种提示串写进真实密钥位，
+   * 直接把 AI 兜底打死。这里做两件事：
+   *   1) 丢弃前端传来的 aiApiKeyHint / aiApiKeySet（它们不是可写字段）；
+   *   2) 空串 / 纯提示串不覆盖已存密钥 —— 想换密钥就填一个新的完整值。
+   */
+  configure(cfg: Partial<SpeakerConfig> & { aiApiKeyHint?: string; aiApiKeySet?: boolean }) {
+    const incoming = { ...cfg };
+    delete incoming.aiApiKeyHint;
+    delete incoming.aiApiKeySet;
+
+    if (incoming.aiApiKey !== undefined) {
+      const v = String(incoming.aiApiKey || '').trim();
+      // 形如 '…xxxx' 的是回显提示，不是真密钥
+      const isHint = v === '' || (v.startsWith('…') && v.length <= 8);
+      if (isHint) delete incoming.aiApiKey;
+    }
+
+    this.cfg = { ...this.cfg, ...incoming };
     this.persist();
     logger.info({ enabled: this.cfg.monitorEnabled, devices: this.cfg.deviceIds.length }, '音箱配置已更新');
     if (this.cfg.monitorEnabled) this.startMonitor();

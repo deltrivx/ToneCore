@@ -147,53 +147,6 @@
         </div>
       </div>
 
-      <!-- 关于：版本、数据位置、项目信息 -->
-      <div class="tc-card p-4 space-y-3">
-        <div class="text-sm font-medium text-fg-muted border-b border-line pb-2">关于</div>
-
-        <div class="flex items-center gap-3">
-          <!-- 用绑定常量而非字面量 src：否则 Vite 会把它当模块去解析（public 下的资源不该被打包） -->
-          <img :src="ICON" alt="ToneCore" class="w-11 h-11 rounded-lg shrink-0" />
-          <div class="min-w-0">
-            <div class="text-sm text-fg">ToneCore</div>
-            <div class="text-xs text-fg-subtle">无头音乐中枢 · 语音点歌 / 本地曲库 / 全网音源</div>
-          </div>
-          <span class="tc-badge ml-auto text-[10px]">v{{ about?.version || '-' }}</span>
-        </div>
-
-        <dl class="grid grid-cols-1 gap-2 text-xs">
-          <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-fg-subtle">已装音源</dt>
-            <dd class="font-mono text-fg-muted">{{ about?.sources ?? '-' }} 个脚本</dd>
-          </div>
-          <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-fg-subtle">曲库</dt>
-            <dd class="font-mono text-fg-muted">{{ about?.library ?? '-' }} 首</dd>
-          </div>
-          <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-fg-subtle">音乐目录</dt>
-            <dd class="font-mono text-fg-muted truncate">{{ cfg.musicDir || cfg.music_dir || '-' }}</dd>
-          </div>
-          <div class="flex items-baseline gap-3">
-            <dt class="w-20 shrink-0 text-fg-subtle">数据目录</dt>
-            <dd class="font-mono text-fg-muted truncate">{{ cfg.dataDir || cfg.data_dir || '-' }}</dd>
-          </div>
-        </dl>
-
-        <div class="flex flex-wrap gap-2 pt-1">
-          <a href="https://github.com/deltrivx/ToneCore" target="_blank" rel="noreferrer"
-            class="tc-btn text-xs">项目仓库</a>
-          <a href="https://github.com/deltrivx/ToneCore/releases" target="_blank" rel="noreferrer"
-            class="tc-btn text-xs">更新日志</a>
-          <a href="https://github.com/deltrivx/ToneCore/issues" target="_blank" rel="noreferrer"
-            class="tc-btn text-xs">反馈问题</a>
-        </div>
-
-        <div class="text-[11px] text-fg-subtle leading-relaxed border-t border-line pt-2">
-          音源脚本遵循洛雪（LX Music）自定义源协议，由第三方维护，本项目的运行时负责加载与取链。
-        </div>
-      </div>
-
       <div class="tc-card p-4 space-y-4">
         <div class="flex items-center justify-between border-b border-line pb-2">
           <div class="text-sm font-medium text-fg-muted">小爱音箱接入</div>
@@ -358,6 +311,56 @@
         </div>
       </div>
 
+      <!-- 音箱高级配置：对齐 SongLoft MIoT 插件的可配置项 -->
+      <SpeakerConfig />
+
+      <!-- 关于：版本、数据位置、项目信息 -->
+      <div class="tc-card p-4 space-y-3">
+        <div class="text-sm font-medium text-fg-muted border-b border-line pb-2">关于</div>
+
+        <div class="flex items-center gap-3">
+          <!-- 用绑定常量而非字面量 src：否则 Vite 会把它当模块去解析（public 下的资源不该被打包） -->
+          <img :src="ICON" alt="ToneCore" class="w-11 h-11 rounded-lg shrink-0" />
+          <div class="min-w-0">
+            <div class="text-sm text-fg">ToneCore</div>
+            <div class="text-xs text-fg-subtle">无头音乐中枢 · 语音点歌 / 本地曲库 / 全网音源</div>
+          </div>
+          <span class="tc-badge ml-auto text-[10px]">v{{ about?.version || '-' }}</span>
+        </div>
+
+        <dl class="grid grid-cols-1 gap-2 text-xs">
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-fg-subtle">已装音源</dt>
+            <dd class="font-mono text-fg-muted">{{ about?.sources ?? '-' }} 个脚本</dd>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-fg-subtle">曲库</dt>
+            <dd class="font-mono text-fg-muted">{{ about?.library ?? '-' }} 首</dd>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-fg-subtle">音乐目录</dt>
+            <dd class="font-mono text-fg-muted truncate">{{ cfg.musicDir || cfg.music_dir || '-' }}</dd>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <dt class="w-20 shrink-0 text-fg-subtle">数据目录</dt>
+            <dd class="font-mono text-fg-muted truncate">{{ cfg.dataDir || cfg.data_dir || '-' }}</dd>
+          </div>
+        </dl>
+
+        <div class="flex flex-wrap gap-2 pt-1">
+          <a href="https://github.com/deltrivx/ToneCore" target="_blank" rel="noreferrer"
+            class="tc-btn text-xs">项目仓库</a>
+          <a href="https://github.com/deltrivx/ToneCore/releases" target="_blank" rel="noreferrer"
+            class="tc-btn text-xs">更新日志</a>
+          <a href="https://github.com/deltrivx/ToneCore/issues" target="_blank" rel="noreferrer"
+            class="tc-btn text-xs">反馈问题</a>
+        </div>
+
+        <div class="text-[11px] text-fg-subtle leading-relaxed border-t border-line pt-2">
+          音源脚本遵循洛雪（LX Music）自定义源协议，由第三方维护，本项目的运行时负责加载与取链。
+        </div>
+      </div>
+
         </div><!-- /右列 -->
       </div><!-- /两列栅格 -->
 
@@ -374,6 +377,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { api, setToken } from '../composables/useApi.js';
+import SpeakerConfig from '../components/SpeakerConfig.vue';
 
 const cfg = ref(null);
 const saving = ref(false);

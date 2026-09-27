@@ -20,6 +20,7 @@
 
 | 版本 | 日期 | 镜像标签 | 说明 |
 |---|---|---|---|
+| [0.13.0](docs/release-notes/v0.13.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.13.0` | 关于移到底部；音箱配置完整复刻 SongLoft MIoT |
 | [0.12.0](docs/release-notes/v0.12.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.12.0` | 界面体系重构：矢量图标 / 单入口导航 / 设计 token |
 | [0.11.7](docs/release-notes/v0.11.7.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.7` | 修复 tag 构建时 `latest` 标签缺失 |
 | [0.11.6](docs/release-notes/v0.11.6.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.6` | 修复 Subsonic 取流 502（路径分隔符被整体编码） |
