@@ -20,6 +20,7 @@
 
 | 版本 | 日期 | 镜像标签 | 说明 |
 |---|---|---|---|
+| [0.15.0](docs/release-notes/v0.15.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.15.0` | 修复登录 code=10001（认证上下文端点失效） |
 | [0.14.0](docs/release-notes/v0.14.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.14.0` | 修密码哈希与鉴权误报；改为自主认证；清理冗余文案 |
 | [0.13.0](docs/release-notes/v0.13.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.13.0` | 关于移到底部；音箱配置完整复刻 SongLoft MIoT |
 | [0.12.0](docs/release-notes/v0.12.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.12.0` | 界面体系重构：矢量图标 / 单入口导航 / 设计 token |

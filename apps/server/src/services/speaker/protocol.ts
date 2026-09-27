@@ -159,21 +159,38 @@ export interface MiLoginResult {
  * 成功直接拿到 serviceToken/ssecurity → 可直接用；需要验证码则返回 notificationUrl。
  */
 export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResult> {
-  // 关键：小米要求先走 authStart 拿登录上下文（context 即 _sign），
-  // 缺少它会稳定返回 code=70016「登录验证失败」——与账号密码是否正确无关。
+  // 关键：小米要求先拿登录上下文 _sign，缺少它会稳定返回
+  // code=10001「系统错误」/ 70016「登录验证失败」——与账号密码是否正确无关。
+  //
+  // ⚠️ 端点必须是 /pass/serviceLogin，不是 /fe/service/identity/authStart。
+  // 实测（2026-09-28）：authStart 现在直接返回 React 登录页 HTML（22KB），
+  // 不再是 JSON，解析不出 _sign，于是后续登录必然 10001。
+  // 而 /pass/serviceLogin?sid=micoapi&_json=true 仍返回 JSON 且带 28 位 _sign。
+  // 同时服务端会回传 qs / serviceParam / callback，用它的值比本地硬编码更稳。
   let sign = "";
+  let qs = "%3Fsid%3Dmicoapi%26_json%3Dtrue";
+  let serviceParam =
+    "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D";
+  let callback = "https://api2.mina.mi.com/sts";
   try {
     const startRes = await fetch(
-      `${MINA_LOGIN_BASE}/fe/service/identity/authStart?sid=micoapi&_locale=zh_CN&_json=true`,
+      `${MINA_LOGIN_BASE}/pass/serviceLogin?sid=micoapi&_json=true`,
       {
         method: "GET",
         headers: MI_LOGIN_HEADERS,
       },
     );
     const startBody = parseMiLoginBody(await startRes.text());
-    sign = String(startBody?.context ?? startBody?._sign ?? "");
+    sign = String(startBody?._sign ?? startBody?.context ?? "");
+    if (startBody?.qs) qs = String(startBody.qs);
+    if (startBody?.serviceParam) serviceParam = String(startBody.serviceParam);
+    if (startBody?.callback) callback = String(startBody.callback);
   } catch (e) {
-    logger.debug({ err: String(e) }, "authStart 获取登录上下文失败，继续尝试无 sign 登录");
+    logger.debug({ err: String(e) }, "获取登录上下文失败，继续尝试无 sign 登录");
+  }
+
+  if (!sign) {
+    logger.warn("未能取得登录上下文 _sign，登录很可能返回 code=10001");
   }
 
   // ⚠️ hash 必须是「密码的 MD5 大写」，不是明文密码。
@@ -182,12 +199,12 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
   // 已在 hashPassword() 里统一处理，调用方传明文即可。
   const params = new URLSearchParams({
     _json: "true",
-    qs: "%40%3A%2F%2Faccount.xiaomi.com%2Fpass%2FserviceLoginAuth2",
+    qs,
     sid: "micoapi",
-    serviceParam:
-      "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
+    serviceParam,
     user: c.username,
     hash: hashPassword(c.password),
+    callback,
   });
   if (sign) params.set("_sign", sign);
 
