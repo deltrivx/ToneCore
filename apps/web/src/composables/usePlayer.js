@@ -24,6 +24,16 @@ export const REPEAT_META = {
   shuffle: { icon: 'shuffle', label: '随机播放' },
 };
 
+/**
+ * 系统媒体控件句柄（模块级）。
+ *
+ * ⚠️ 必须放模块级：applyState() 是模块级函数，而 media 原先是 usePlayer() 内部的
+ * const —— applyState 里 `media.update()` 引用不到它，每次状态更新都会抛
+ * ReferenceError，导致 metadata **一次都没上报成功**。这正是「锁屏只显示软件名」的真因。
+ * 在 usePlayer() 里赋值，这里只持有引用。
+ */
+let media = null;
+
 const state = reactive({
   queue: [],
   index: -1,
@@ -132,7 +142,7 @@ function applyState(r) {
   }
 
   // 曲目或播放状态一变，就同步给系统媒体控件
-  media.update();
+  media?.update();
 }
 
 /** 拉取当前曲目歌词 */
@@ -295,7 +305,8 @@ export function usePlayer() {
    * 少了这一层，锁屏上只有浏览器给的页面标题，没有专辑图、歌名、歌手，
    * 也没有播放控制 —— 不像一个音乐页面。
    */
-  const media = useMediaSession({
+  // 挂到模块级变量，供 applyState() 调用
+  media = useMediaSession({
     getTrack: () => current.value,
     getCover: () => coverUrl.value,
     getPlaying: () => state.playing,

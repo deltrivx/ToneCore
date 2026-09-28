@@ -40,7 +40,7 @@
             而且和歌词区滚动、进度条拖动互相打架。现在手势与位移都只作用于大碟。
           -->
           <div
-            class="relative w-[min(42vh,300px)] md:w-[min(46vh,340px)] aspect-square shrink-0 will-change-transform"
+            class="relative w-[min(30vh,200px)] md:w-[min(46vh,340px)] aspect-square shrink-0 will-change-transform"
             :class="dragActive ? '' : 'transition-transform duration-200 ease-out'"
             :style="{ transform: `translateX(${swipeShift}px)` }"
             @touchstart.passive="onTouchStart"
@@ -342,8 +342,17 @@ watch(() => state.lyricIndex, async (i) => {
   const el = box.children[i];
   if (!el) return;
   await nextTick();
-  const target = el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2;
-  box.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+
+  // ⚠️ 不能用 offsetTop 定位：
+  // lyricBox 自身不是 position:relative，offsetTop 会相对更外层的 relative 祖先算，
+  // 于是把**上方大碟的高度**也算进来了（移动端约 430px ≈ 12 行）。
+  // 结果就是滚动过头 —— 显示的永远是后面的歌词，看起来像「歌词跑在前面」。
+  // 改用 rect 差值：只关心「目标行中心」与「可视区中心」的差，与定位上下文无关。
+  const boxRect = box.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const delta =
+    (elRect.top + elRect.height / 2) - (boxRect.top + boxRect.height / 2);
+  box.scrollTo({ top: Math.max(0, box.scrollTop + delta), behavior: 'smooth' });
 });
 </script>
 

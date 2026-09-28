@@ -57,58 +57,13 @@
       </div>
     </section>
 
-    <!-- ============ 音乐推荐（在线榜单）============
-         曲库小的时候，本地那几个维度很快就没东西可推了，所以补在线源。
-         点卡片直接走在线播放链路（与在线搜索一致），不落库。 -->
-    <template v-if="!localKw && boards.length">
-      <section v-for="b in boards" :key="b.id" class="space-y-2">
-        <h3 class="tc-section-title">
-          推荐 · {{ b.name }}
-        </h3>
-        <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-          <div v-for="(s, i) in b.items" :key="s.id || i"
-            class="group cursor-pointer" @click="playRecommend(b, i)">
-            <div class="relative tc-cover-art">
-              <img v-if="s.coverUrl" :src="s.coverUrl" class="w-full h-full object-cover" loading="lazy" />
-              <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
-                <Icon name="music" :size="22" />
-              </div>
-              <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
-                :title="`播放 ${s.title}`">
-                <span class="w-8 h-8 rounded-full bg-accent text-fg-inverse flex items-center justify-center">
-                  <Icon name="play" :size="14" />
-                </span>
-              </button>
-            </div>
-            <div class="mt-1 text-[11px] text-fg truncate">{{ s.title }}</div>
-            <div class="text-[10px] text-fg-subtle truncate">{{ s.artist }}</div>
-          </div>
-        </div>
-      </section>
-    </template>
+    <!-- 在线推荐已按用户要求移到曲库页（Library.vue） -->
 
-    <!-- ============ 推荐：最近入库 ============ -->
-    <section v-if="!localKw && home.recent.length" class="space-y-2">
-      <h3 class="tc-section-title">最近入库</h3>
-      <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-        <div v-for="s in home.recent" :key="s.id" class="group cursor-pointer" @click="playHomeSong(s)">
-          <div class="relative tc-cover-art">
-            <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
-            <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
-              <Icon name="music" :size="22" />
-            </div>
-            <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
-              :title="`播放 ${s.title}`">
-              <span class="w-8 h-8 rounded-full bg-accent text-fg-inverse flex items-center justify-center">
-                <Icon name="play" :size="14" />
-              </span>
-            </button>
-          </div>
-          <div class="mt-1 text-[11px] text-fg truncate">{{ s.title }}</div>
-          <div class="text-[10px] text-fg-subtle truncate">{{ s.artist }}</div>
-        </div>
-      </div>
-    </section>
+    <!--
+      「最近入库」已取消（用户要求）：它与本地曲库列表完全重复，
+      首页放一份、曲库页再放一份，等于把同样的歌摆了两遍。
+      在线推荐改放曲库页（见 Library.vue）。
+    -->
 
     <!-- ============ 推荐：专辑 / 歌手分类 ============ -->
     <section v-if="!localKw && home.albums.length" class="space-y-2">
@@ -228,29 +183,9 @@ const total = ref(0);
 const loading = ref(false);
 const message = ref(null);
 
-/** 首页聚合数据：歌单 + 推荐分区 + 统计 */
-const home = ref({ playlists: [], recent: [], albums: [], artists: [], stats: null });
+/** 首页聚合数据：歌单 + 专辑/歌手分类 + 统计（「最近入库」与在线推荐已按用户要求移除） */
+const home = ref({ playlists: [], albums: [], artists: [], stats: null });
 const homeLoading = ref(false);
-
-/** 在线推荐（榜单）。拿不到就留空，不影响本地板块 */
-const boards = ref([]);
-
-async function loadRecommend() {
-  try {
-    const r = await api.recommend();
-    boards.value = (r && r.boards) || [];
-  } catch { /* 在线推荐失败不影响首页，静默 */ }
-}
-
-/** 在线推荐：直接走在线播放链路（与在线搜索一致） */
-async function playRecommend(b, index) {
-  message.value = null;
-  try {
-    const r = await player.playList(b.items, index);
-    if (!r || r.ok === false) message.value = { ok: false, text: (r && r.error) || '暂时取不到可播放地址' };
-    else if (!r.playUrl) message.value = { ok: false, text: `「${b.items[index].title}」取链失败，换一首试试` };
-  } catch (e) { message.value = { ok: false, text: '播放失败：' + e }; }
-}
 
 async function loadHome() {
   homeLoading.value = true;
@@ -258,7 +193,6 @@ async function loadHome() {
     const r = await api.home();
     if (r) home.value = {
       playlists: r.playlists || [],
-      recent: r.recent || [],
       albums: r.albums || [],
       artists: r.artists || [],
       stats: r.stats || null,
@@ -330,14 +264,6 @@ async function playPlaylist(pl) {
   }
 }
 
-/** 首页推荐卡片：单曲直接播放（放进当前可见列表里定位） */
-async function playHomeSong(s) {
-  localKw.value = '';
-  const list = songs.value.length ? songs.value : home.value.recent;
-  const i = list.findIndex((x) => x.id === s.id);
-  await player.playList(toQueue(list), Math.max(0, i));
-}
-
 /** 点分类推荐 → 落到本地检索框 */
 function filterBy(kind, name) {
   localKw.value = name;
@@ -354,5 +280,5 @@ async function appendSong(s) {
   setTimeout(() => { message.value = null; }, 1800);
 }
 
-onMounted(() => { load(); loadHome(); loadRecommend(); });
+onMounted(() => { load(); loadHome(); });
 </script>
