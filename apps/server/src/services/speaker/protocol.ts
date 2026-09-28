@@ -485,6 +485,112 @@ export async function verifyMiLogin(
 }
 
 
+/** 小米站内相对地址 → 绝对地址 */
+function absMiUrl(u: string): string {
+  const s = String(u ?? '');
+  return s.slice(0, 4) === 'http' ? s : `${MINA_LOGIN_BASE}${s}`;
+}
+
+/**
+ * 用 ticket 完成二次验证 —— 对齐 Home Assistant 的
+ * check_identity_list + verify_ticket + _login_step1/3。
+ *
+ * ⚠️ 小米 micoapi 的二次验证**不是**「输入短信验证码」。真实流程是：
+ *   打开 notificationUrl → 在页面里完成验证 → 拿到 ticket → 回填 ticket。
+ * 旧实现把用户填的东西当成短信验证码 POST 给 serviceLoginAuth2，
+ * 小米于是回到 81003「仍需验证」⇒ 界面永远提示「请重新获取验证码」，
+ * 且与你填的内容是否正确无关。
+ */
+export async function submitVerifyTicket(verifyUrl: string, ticket: string): Promise<MiLoginResult> {
+  const AUTH_START = 'fe/service/identity/authStart';
+  const url = absMiUrl(verifyUrl);
+  if (!url.includes(AUTH_START)) {
+    return { ok: false, error: '验证地址不符合预期（缺少 identity 路径），请重新发起登录', raw: { url } };
+  }
+
+  // 1) 取 identity_session 与可用的验证方式（4=手机, 8=邮箱）
+  let identitySession = '';
+  let flags: number[] = [4];
+  try {
+    const lres = await fetch(url.replace(AUTH_START, 'identity/list'), {
+      method: 'GET',
+      headers: { 'User-Agent': MI_LOGIN_UA },
+    });
+    identitySession = cookieFrom(lres, 'identity_session');
+    const lj = parseMiLoginBody(await lres.text());
+    const raw = Array.isArray(lj?.options) && lj.options.length ? lj.options : [Number(lj?.flag ?? 4)];
+    const f = raw.map(Number).filter((n: number) => n === 4 || n === 8);
+    if (f.length) flags = f;
+  } catch (e) {
+    return { ok: false, error: '读取验证方式失败：' + String(e).slice(0, 120) };
+  }
+  if (!identitySession) return { ok: false, error: '未能取得 identity_session，请重新发起登录' };
+
+  const jar = { v: `identity_session=${identitySession}` };
+  const mergeCookie = (res: Response) => {
+    const c = cookieHeaderFrom(res);
+    if (!c) return;
+    jar.v = c.includes('identity_session') ? c : `${jar.v}; ${c}`;
+  };
+
+  // 2) 提交 ticket
+  let location = '';
+  let last: any = null;
+  for (const flag of flags) {
+    const api = flag === 4 ? '/identity/auth/verifyPhone' : '/identity/auth/verifyEmail';
+    const body = new URLSearchParams({ _flag: String(flag), ticket, trust: 'false', _json: 'true' });
+    const res = await fetch(`${MINA_LOGIN_BASE}${api}?_dc=${Date.now()}`, {
+      method: 'POST',
+      headers: {
+        'User-Agent': MI_LOGIN_UA,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: jar.v,
+      },
+      body: body.toString(),
+    });
+    const j = parseMiLoginBody(await res.text());
+    last = j;
+    mergeCookie(res);
+    if (j && Number(j.code) === 0 && j.location) { location = String(j.location); break; }
+  }
+  if (!location) {
+    return {
+      ok: false,
+      error: describeLoginCode(Number(last?.code ?? 0), String(last?.desc ?? 'ticket 校验未通过')),
+      raw: last,
+    };
+  }
+
+  // 3) 跟随 location：serviceToken 由 Set-Cookie 下发
+  try {
+    const r = await fetch(absMiUrl(location), {
+      method: 'GET',
+      headers: { 'User-Agent': MI_LOGIN_UA, Cookie: jar.v },
+    });
+    const svc = cookieFrom(r, 'serviceToken');
+    const uid = cookieFrom(r, 'userId');
+    mergeCookie(r);
+
+    // 4) ssecurity 只在第一步返回，必须带 cookie 重取一次
+    const ctx = await fetchLoginContext(jar.v);
+    const userId = uid || ctx.userId;
+    const ssecurity = ctx.ssecurity;
+    if (svc && userId && ssecurity) {
+      return { ok: true, mina: { userId, serviceToken: svc, ssecurity } };
+    }
+    if (ctx.ssecurity && ctx.userId) {
+      return finishLogin(
+        { location, userId: ctx.userId, ssecurity: ctx.ssecurity, nonce: '' },
+        { sign: ctx.sign, qs: ctx.qs, serviceParam: ctx.serviceParam, callback: ctx.callback },
+        jar.v,
+      );
+    }
+    return { ok: false, error: '验证通过但未取到完整凭据，请重试', raw: { hasToken: !!svc, hasUser: !!userId, hasSec: !!ssecurity } };
+  } catch (e) {
+    return { ok: false, error: '换取凭据失败：' + String(e).slice(0, 120) };
+  }
+}
+
 const MINA_BASE = 'https://api2.mina.mi.com';
 const MINA_USER_AGENT = 'MiHome/6.0.103 (com.xiaomi.mihome; build:6.0.103.1; iOS 14.4.0) Alamofire/6.0.103 MICO/iOSApp/appStore/6.0.103';
 

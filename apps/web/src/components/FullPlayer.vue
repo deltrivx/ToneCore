@@ -1,52 +1,89 @@
 <template>
-  <!-- 全屏播放页：左封面 / 右歌词（PC），移动端上下堆叠 -->
-  <div class="fixed inset-0 z-50 bg-surface flex flex-col">
-    <!-- 顶栏 -->
-    <div class="h-[58px] shrink-0 flex items-center gap-3 px-4 border-b border-line">
-      <button class="tc-icon-btn" title="收起" @click="toggleExpand">
-        <Icon name="chevronDown" :size="20" />
-      </button>
-      <div class="min-w-0">
-        <div class="text-sm text-fg truncate">{{ cur?.title || '未在播放' }}</div>
-        <div class="text-[11px] text-fg-subtle truncate">{{ cur?.artist || '—' }}</div>
-      </div>
-      <span v-if="state.quality" class="tc-chip ml-auto shrink-0">
-        {{ state.quality === 'local' ? '本地' : state.quality }}
-      </span>
+  <!--
+    全屏播放页：QQ 音乐「大屏」风格
+      · 封面放大模糊铺满整屏做沉浸背景
+      · 居中大碟（播放时缓慢旋转，暂停即停）
+      · 右侧歌词，当前行高亮放大
+      · 底部整幅控制区（进度 / 主控制 / 音量）
+    移动端自动上下堆叠，主控制区保持可单手操作。
+  -->
+  <div class="fixed inset-0 z-50 overflow-hidden bg-surface">
+    <!-- 背景层：封面模糊 + 暗色渐变压底，保证文字对比度 -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+      <img v-if="player.coverUrl.value" :src="player.coverUrl.value"
+        class="absolute inset-0 w-full h-full object-cover scale-125 blur-[72px] opacity-45" alt="" />
+      <div class="absolute inset-0 bg-gradient-to-b from-surface/70 via-surface/85 to-surface"></div>
     </div>
 
-    <!-- 主体 -->
-    <div class="flex-1 min-h-0 flex flex-col md:flex-row">
-      <!-- 封面区 -->
-      <div class="md:w-[46%] shrink-0 flex items-center justify-center p-6 md:p-10 md:border-r md:border-line">
-        <div class="relative w-full max-w-[380px] aspect-square rounded-xl overflow-hidden
-                    bg-surface-overlay border border-line flex items-center justify-center">
-          <img v-if="player.coverUrl.value" :src="player.coverUrl.value" class="w-full h-full object-cover" alt="" />
-          <Icon v-else name="music" :size="88" class="text-accent/40" />
+    <div class="relative h-full flex flex-col">
+      <!-- 顶栏 -->
+      <div class="h-[58px] shrink-0 flex items-center gap-3 px-4 md:px-6">
+        <button class="tc-icon-btn" title="收起" @click="toggleExpand">
+          <Icon name="chevronDown" :size="20" />
+        </button>
+        <span class="text-[11px] tracking-[0.2em] text-fg-subtle uppercase">正在播放</span>
+        <span v-if="state.quality" class="tc-chip ml-auto shrink-0">
+          {{ state.quality === 'local' ? '本地' : state.quality }}
+        </span>
+        <button class="tc-icon-btn" title="播放队列" @click="showQueue = !showQueue">
+          <Icon name="list" :size="18" />
+        </button>
+      </div>
+
+      <!-- 主体 -->
+      <div class="flex-1 min-h-0 flex flex-col md:flex-row md:items-stretch gap-4 md:gap-8 px-4 md:px-8 pb-2">
+        <!-- 左：大碟 + 曲目信息 -->
+        <div class="md:w-[44%] shrink-0 flex flex-col items-center justify-center gap-5 min-h-0">
+          <div class="relative w-[min(42vh,300px)] md:w-[min(46vh,340px)] aspect-square shrink-0">
+            <!-- 黑胶底盘 -->
+            <div class="absolute inset-[-6%] rounded-full bg-black/55 border border-white/10
+                        shadow-[0_18px_50px_rgba(0,0,0,0.55)]"></div>
+            <!-- 封面：播放时缓慢旋转 -->
+            <div class="absolute inset-0 rounded-full overflow-hidden tc-disc"
+              :class="{ 'tc-disc-paused': !state.playing }">
+              <img v-if="player.coverUrl.value" :src="player.coverUrl.value"
+                class="w-full h-full object-cover" alt="" />
+              <div v-else class="w-full h-full flex items-center justify-center bg-surface-overlay">
+                <Icon name="music" :size="72" class="text-accent/40" />
+              </div>
+            </div>
+            <!-- 中心轴孔 -->
+            <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
+                        w-[14%] aspect-square rounded-full bg-surface border border-white/15"></div>
+          </div>
+
+          <div class="text-center min-w-0 w-full px-2">
+            <div class="text-lg md:text-xl font-medium text-fg truncate">{{ cur?.title || '未在播放' }}</div>
+            <div class="mt-1 text-[13px] text-fg-muted truncate">
+              {{ cur?.artist || '未知歌手' }}<span v-if="cur?.album"> · {{ cur.album }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右：歌词 -->
+        <div class="flex-1 min-h-0 flex flex-col">
+          <div ref="lyricBox" class="flex-1 min-h-0 overflow-y-auto px-2 md:px-6 py-4 text-center">
+            <template v-if="state.lyrics.lines.length">
+              <div v-for="(l, i) in state.lyrics.lines" :key="i"
+                class="tc-lyric-line cursor-pointer"
+                :class="i === state.lyricIndex ? 'tc-lyric-active' : 'tc-lyric-idle'"
+                @click="seek(l.time)">
+                {{ l.text }}
+              </div>
+            </template>
+            <div v-else class="h-full flex flex-col items-center justify-center gap-3 text-fg-subtle">
+              <Icon name="music" :size="34" />
+              <span class="text-sm">{{ lyricHint }}</span>
+            </div>
+            <!-- 底部留白：让最后几行也能滚到中间 -->
+            <div class="h-[45vh]"></div>
+          </div>
         </div>
       </div>
 
-      <!-- 歌词区 -->
-      <div class="flex-1 min-h-0 flex flex-col">
-        <div ref="lyricBox" class="flex-1 min-h-0 overflow-y-auto px-6 py-8 space-y-0.5">
-          <template v-if="state.lyrics.lines.length">
-            <div v-for="(l, i) in state.lyrics.lines" :key="i"
-              class="tc-lyric-line cursor-pointer"
-              :class="i === state.lyricIndex ? 'tc-lyric-active' : 'tc-lyric-idle'"
-              @click="seek(l.time)">
-              {{ l.text }}
-            </div>
-          </template>
-          <div v-else class="h-full flex flex-col items-center justify-center gap-3 text-fg-subtle">
-            <Icon name="music" :size="34" />
-            <span class="text-sm">{{ lyricHint }}</span>
-          </div>
-          <!-- 底部留白：让最后几行也能滚到中间 -->
-          <div class="h-[45vh]"></div>
-        </div>
-
-        <!-- 控制区 -->
-        <div class="shrink-0 border-t border-line px-4 md:px-6 py-4 space-y-3">
+      <!-- 底部控制区 -->
+      <div class="shrink-0 px-4 md:px-8 pb-5 pt-3">
+        <div class="max-w-[820px] mx-auto space-y-3">
           <!-- 进度 -->
           <div class="flex items-center gap-3">
             <span class="text-[11px] tc-num text-fg-subtle w-10 text-right">{{ fmtTime(state.currentTime) }}</span>
@@ -60,41 +97,37 @@
             <span class="text-[11px] tc-num text-fg-subtle w-10">{{ fmtTime(state.duration) }}</span>
           </div>
 
-          <!-- 按钮 -->
-          <div class="flex items-center justify-center gap-4 md:gap-6">
+          <!-- 主控制：音量块给了固定宽度，保证播放键始终居中 -->
+          <div class="flex items-center justify-center gap-5 md:gap-8">
             <button class="tc-icon-btn" :title="REPEAT_META[state.repeat].label" @click="cycleRepeat">
               <Icon :name="REPEAT_META[state.repeat].icon" :size="18" />
             </button>
             <button class="tc-icon-btn" title="上一首" @click="prev">
-              <Icon name="prev" :size="20" />
+              <Icon name="prev" :size="22" />
             </button>
             <button
               class="w-14 h-14 rounded-full bg-accent text-fg-inverse flex items-center justify-center
+                     shadow-[0_6px_20px_rgba(79,195,247,0.35)]
                      transition-transform active:scale-95 hover:bg-accent-hover"
               :title="state.playing ? '暂停' : '播放'" @click="toggle">
               <Icon :name="state.playing ? 'pause' : 'play'" :size="24" />
             </button>
             <button class="tc-icon-btn" title="下一首" @click="next">
-              <Icon name="next" :size="20" />
+              <Icon name="next" :size="22" />
             </button>
-            <button class="tc-icon-btn" title="播放队列" @click="showQueue = !showQueue">
-              <Icon name="list" :size="18" />
-            </button>
-          </div>
 
-          <!-- 音量 -->
-          <div class="flex items-center justify-center gap-2">
-            <button class="tc-icon-btn" :title="state.volume > 0 ? '静音' : '取消静音'" @click="toggleMute">
-              <Icon :name="state.volume > 0 ? 'volume' : 'mute'" :size="17" />
-            </button>
-            <input
-              class="tc-range max-w-[200px]"
-              type="range" min="0" max="100" step="1"
-              :value="state.volume"
-              :style="{ '--p': state.volume + '%' }"
-              @input="e => setVolume(Number(e.target.value))"
-            />
-            <span class="text-[11px] tc-num text-fg-subtle w-8">{{ state.volume }}</span>
+            <div class="flex items-center gap-1.5 w-[104px] justify-end">
+              <button class="tc-icon-btn" :title="state.volume > 0 ? '静音' : '取消静音'" @click="toggleMute">
+                <Icon :name="state.volume > 0 ? 'volume' : 'mute'" :size="17" />
+              </button>
+              <input
+                class="tc-range w-[64px]"
+                type="range" min="0" max="100" step="1"
+                :value="state.volume"
+                :style="{ '--p': state.volume + '%' }"
+                @input="e => setVolume(Number(e.target.value))"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -193,6 +226,15 @@ watch(() => state.lyricIndex, async (i) => {
 </script>
 
 <style scoped>
+/* 大碟旋转：暂停时停在原处，不做重置，观感更自然 */
+.tc-disc { animation: tc-rotate 24s linear infinite; }
+.tc-disc-paused { animation-play-state: paused; }
+@keyframes tc-rotate { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tc-disc { animation: none; }
+}
+
 .tc-queue-enter-active, .tc-queue-leave-active { transition: transform 0.25s ease; }
 .tc-queue-enter-from, .tc-queue-leave-to { transform: translateX(100%); }
 </style>

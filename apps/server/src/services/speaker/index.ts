@@ -5,7 +5,7 @@ import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 import {
   fetchConversations, fetchDevices, playUrl, tts,
-  loginMiAccount, verifyMiLogin,
+  loginMiAccount, verifyMiLogin, submitVerifyTicket,
   playerControl, setVolume, getVolume,
   MinaAuthError,
   type MinaConfig,
@@ -350,7 +350,18 @@ export class SpeakerService {
     return r;
   }
 
-  /** 提交短信 / 邮箱验证码完成登录 */
+  /**
+   * 二次验证：收到通知链接后，用户在页面里完成验证拿到 ticket，回填这里。
+   *
+   * ⚠️ 小米 micoapi 的二次验证**不是**短信验证码。旧实现把用户填的东西
+   * 当验证码提交，服务端永远回 81003「仍需验证」。
+   */
+  async verifyTicket(verifyUrl: string, ticket: string): Promise<MiLoginResult> {
+    const r = await submitVerifyTicket(verifyUrl, ticket);
+    if (r.ok && r.mina) this.applyMina(r.mina);
+    return r;
+  }
+
   async verify(
     username: string,
     password: string,
@@ -359,22 +370,25 @@ export class SpeakerService {
     ctx?: { qs?: string; serviceParam?: string; callback?: string },
   ): Promise<MiLoginResult> {
     const r = await verifyMiLogin({ username, password }, code, sign, ctx);
-    if (r.ok && r.mina) {
-      this.cfg = {
-        ...this.cfg,
-        username, password,
-        userId: r.mina.userId,
-        serviceToken: r.mina.serviceToken,
-        ssecurity: r.mina.ssecurity,
-        tokenExpiresAt: Date.now() + 30 * 24 * 3600 * 1000,
-      };
-      this.authError = null;
-      this.persist();
-      await this.refreshDevices();
-      if (this.cfg.monitorEnabled) this.startMonitor();
-    }
+    if (r.ok && r.mina) this.applyMina(r.mina);
     return r;
   }
+
+  /** 登录成功后统一落盘、拉设备、起监听 */
+  private applyMina(mina: MinaConfig): void {
+    this.cfg = {
+      ...this.cfg,
+      userId: mina.userId,
+      serviceToken: mina.serviceToken,
+      ssecurity: mina.ssecurity,
+      tokenExpiresAt: Date.now() + 30 * 24 * 3600 * 1000,
+    };
+    this.authError = null;
+    this.persist();
+    void this.refreshDevices().catch(() => undefined);
+    if (this.cfg.monitorEnabled) this.startMonitor();
+  }
+
 
   /** 退出登录：清空凭据，保留监听偏好 */
   logout(): void {

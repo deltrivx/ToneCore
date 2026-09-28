@@ -30,6 +30,15 @@ export interface QueueItem {
   filePath?: string;
   origin: 'local' | 'remote';
   duration?: number;
+  /**
+   * 本地曲库封面：library 扫描时从音频内嵌图片抽出、落在 data/covers 下的**文件名**
+   * （不是完整 URL）。前端按 /cover/<name> 拼地址。
+   *
+   * ⚠️ 与 coverUrl（在线音源平台给的完整地址）是两种形态，缺一不可：
+   * 归一化时若只保留 coverUrl，本地歌的封面会被整体丢掉，
+   * 表现为「底部播放条不显示专辑封面」（全屏页因走了别的取值路径可能仍正常）。
+   */
+  cover?: string;
   coverUrl?: string;
 }
 

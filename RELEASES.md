@@ -1,74 +1,53 @@
-# 版本发布
+# ToneCore Releases
 
-本文件记录各版本的发布信息与镜像标签对应关系。详细的逐版本变更见 [CHANGELOG](CHANGELOG.md)，
-单个版本的发布说明见 [`docs/release-notes/`](docs/release-notes/)。
+[项目说明](README.md) | [更新日志](CHANGELOG.md)
 
-## 镜像标签约定
+本页是 **ToneCore 的版本索引**。GitHub Releases 侧栏按发布时间排序，本页按语义化版本号排序，
+避免后补的旧版本让版本顺序看起来错乱。
 
-镜像发布到 GitHub Container Registry：`ghcr.io/deltrivx/tonecore`
+**当前稳定版：** [v0.17.0](https://github.com/deltrivx/tonecore/releases/tag/v0.17.0)
 
-| 标签 | 说明 | 更新方式 |
-|---|---|---|
-| `latest` | 最新发布版本 | 推 `v*` 标签时生成（分支构建不写 `latest`） |
-| `0.2.0` | 语义化版本号 | 推 `v0.2.0` 标签时生成 |
-| `0.2` | 次版本号 | 同上 |
+> 本文件由 `scripts/gen_releases.py` 从 `CHANGELOG.md` 生成，修改请改 CHANGELOG 后重新生成。
 
-> **注意**：`latest` 只由版本标签构建生成，不跟随 `main` 分支的中间提交。
-> 生产环境建议固定到具体的版本号标签。
+## 版本索引
 
-## 版本列表
-
-| 版本 | 日期 | 镜像标签 | 说明 |
+| Version | 日期 | 更新摘要 | 发布说明 |
 |---|---|---|---|
-| [0.16.0](docs/release-notes/v0.16.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.16.0` | 修验证码校验失败（对齐 HA 实现）与续播卡缓冲 |
-| [0.15.0](docs/release-notes/v0.15.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.15.0` | 修复登录 code=10001（认证上下文端点失效） |
-| [0.14.0](docs/release-notes/v0.14.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.14.0` | 修密码哈希与鉴权误报；改为自主认证；清理冗余文案 |
-| [0.13.0](docs/release-notes/v0.13.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.13.0` | 关于移到底部；音箱配置完整复刻 SongLoft MIoT |
-| [0.12.0](docs/release-notes/v0.12.0.md) | 2026-09-28 | `ghcr.io/deltrivx/tonecore:0.12.0` | 界面体系重构：矢量图标 / 单入口导航 / 设计 token |
-| [0.11.7](docs/release-notes/v0.11.7.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.7` | 修复 tag 构建时 `latest` 标签缺失 |
-| [0.11.6](docs/release-notes/v0.11.6.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.6` | 修复 Subsonic 取流 502（路径分隔符被整体编码） |
-| [0.11.5](docs/release-notes/v0.11.5.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.5` | 修复前端整体白屏（进度上报函数被摇树移除） |
-| [0.11.4](docs/release-notes/v0.11.4.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.4` | 修复 Subsonic 取流 404（重定向到不存在的端点） |
-| [0.11.3](docs/release-notes/v0.11.3.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.3` | 补提交 CI workflow，修复镜像版本号错为 `main` |
-| [0.11.2](docs/release-notes/v0.11.2.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.2` | 镜像内版本号错成 `main` |
-| [0.11.1](docs/release-notes/v0.11.1.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.1` | 升级前创建的账号无法使用 Subsonic 令牌认证 |
-| [0.11.0](docs/release-notes/v0.11.0.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.11.0` | Subsonic REST API 兼容层 `/rest/*` |
-| [0.10.0](docs/release-notes/v0.10.0.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.10.0` | 账号认证 |
-| [0.9.0](docs/release-notes/v0.9.0.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.9.0` | 音源「停用」后卡片直接消失 |
-| [0.8.1](docs/release-notes/v0.8.1.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.8.1` | 酷我专辑维度返回空 |
-| [0.8.0](docs/release-notes/v0.8.0.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.8.0` | 云端搜索三种检索维度 |
-| [0.7.1](docs/release-notes/v0.7.1.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.7.1` | 音源「测试」按钮恒定失败 |
-| [0.7.0](docs/release-notes/v0.7.0.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.7.0` | 播放不再占用主页版面 |
-| [0.6.2](docs/release-notes/v0.6.2.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.6.2` | 音源测试硬取 `platforms[0]` 导致假阴性误报 |
-| [0.6.1](docs/release-notes/v0.6.1.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.6.1` | 脚本 init 等待窗口过短（500ms），新版音源被误判加载失败 |
-| [0.6.0](docs/release-notes/v0.6.0.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.6.0` | 清理已删除文件残留的曲目 |
-| [0.5.1](docs/release-notes/v0.5.1.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.5.1` | 歌单删除 / 移除曲目 400 |
-| [0.5.0](docs/release-notes/v0.5.0.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.5.0` | 主页 / 曲库 / 音源 / 设置 |
-| [0.4.0](docs/release-notes/v0.4.0.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.4.0` | 播放页整合进音乐库 |
-| [0.3.0](docs/release-notes/v0.3.0.md) | 2026-09-22 | `ghcr.io/deltrivx/tonecore:0.3.0` | 音源取链全部 30s 超时（致命） |
-| [0.2.0](docs/release-notes/v0.2.0.md) | 2026-09-21 | `ghcr.io/deltrivx/tonecore:0.2.0` | 自带完整播放器 |
-| [0.1.0](docs/release-notes/v0.1.0.md) | 2026-09-23 | `ghcr.io/deltrivx/tonecore:0.1.0` | 无头音乐中枢 |
+| [v0.17.0](https://github.com/deltrivx/tonecore/releases/tag/v0.17.0) | 2026-09-28 | 播放页重构为 QQ 音乐大屏风格；修复封面丢失与小米二次验证流程错误 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.17.0.md) |
+| [v0.16.0](https://github.com/deltrivx/tonecore/releases/tag/v0.16.0) | 2026-09-28 | 修复验证码校验报「登录验证失败」，以及刷新后续播卡在缓冲中。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.16.0.md) |
+| [v0.15.0](https://github.com/deltrivx/tonecore/releases/tag/v0.15.0) | 2026-09-28 | 修复小米账号登录返回 code=10001「系统错误」：登录上下文端点已失效。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.15.0.md) |
+| [v0.14.0](https://github.com/deltrivx/tonecore/releases/tag/v0.14.0) | 2026-09-28 | 移除界面无用文案，修复音箱「设备为 0」的真实根因，并改为自主认证。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.14.0.md) |
+| [v0.13.0](https://github.com/deltrivx/tonecore/releases/tag/v0.13.0) | 2026-09-28 | 设置页结构调整，并完整复刻 SongLoft MIoT 插件的音箱配置能力（前后端）。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.13.0.md) |
+| [v0.12.0](https://github.com/deltrivx/tonecore/releases/tag/v0.12.0) | 2026-09-28 | 从科技风 demo 界面重构为成熟音乐平台的界面体系：图标矢量统一、导航收口、设计 token 落地 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.12.0.md) |
+| [v0.11.7](https://github.com/deltrivx/tonecore/releases/tag/v0.11.7) | 2026-09-23 | 修复 tag 构建时 latest 标签缺失导致拉到 version=main 的镜像 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.7.md) |
+| [v0.11.6](https://github.com/deltrivx/tonecore/releases/tag/v0.11.6) | 2026-09-23 | - **Subsonic 取流转 502**：v0.11.4 把流重定向改成用 `encodeURIComponent(filePath)`，但该函数会把路径分隔符 `/` 编码成 `%2F`，而 Fastify 的通配路由 `/st… | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.6.md) |
+| [v0.11.5](https://github.com/deltrivx/tonecore/releases/tag/v0.11.5) | 2026-09-23 | - **前端整体白屏（全黑无内容）**：上一版把播放进度上报函数写在 `ensureAudio()` 内部，它们只被 `<audio>` 事件回调引用，**rollup 判定为未使用代码，连同调用点一起删除**；但 `usePlaye… | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.5.md) |
+| [v0.11.4](https://github.com/deltrivx/tonecore/releases/tag/v0.11.4) | 2026-09-23 | - **Subsonic 的 `stream` / `download` 取流 404**：这两个方法原本重定向到 `/api/library/<id>/stream`，但**该端点并不存在**——真实的流端点是 `/stream/<… | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.4.md) |
+| [v0.11.3](https://github.com/deltrivx/tonecore/releases/tag/v0.11.3) | 2026-09-23 | - 补上一次遗漏：`.github/workflows/docker.yml` 的修改**实际未提交进仓库**（提交清单漏了该文件），因此 v0.11.2 的镜像版本号仍为 `main`。本次真正提交。修正后 tag 构建的镜像会带上… | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.3.md) |
+| [v0.11.2](https://github.com/deltrivx/tonecore/releases/tag/v0.11.2) | 2026-09-23 | - **镜像内版本号错成 `main`**：CI 用 `docker/metadata-action` 的 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.2.md) |
+| [v0.11.1](https://github.com/deltrivx/tonecore/releases/tag/v0.11.1) | 2026-09-23 | - **升级前创建的账号无法使用 Subsonic 令牌认证**：`users.pwd_enc`（Subsonic 令牌认证 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.1.md) |
+| [v0.11.0](https://github.com/deltrivx/tonecore/releases/tag/v0.11.0) | 2026-09-23 | 新增 **Subsonic REST API 兼容层**（第三方 App 可直接连接）、账号自助管理、播放进度持久化。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.11.0.md) |
+| [v0.10.0](https://github.com/deltrivx/tonecore/releases/tag/v0.10.0) | 2026-09-23 | 新增账号认证与 SongLoft 兼容层（第一阶段）：外部设备可按 SongLoft 方式连接本中枢。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.10.0.md) |
+| [v0.9.0](https://github.com/deltrivx/tonecore/releases/tag/v0.9.0) | 2026-09-23 | 修复音源停用后卡片消失的 bug；播放条常驻并显示封面与歌词；播放面板按成熟音乐平台重做；小爱配置补全。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.9.0.md) |
+| [v0.8.1](https://github.com/deltrivx/tonecore/releases/tag/v0.8.1) | 2026-09-22 | 修复「按专辑」检索取不到曲目。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.8.1.md) |
+| [v0.8.0](https://github.com/deltrivx/tonecore/releases/tag/v0.8.0) | 2026-09-22 | 云端搜索支持按「歌曲 / 歌手 / 专辑」检索与直接入库；主页支持多种显示方式；界面去噪。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.8.0.md) |
+| [v0.7.1](https://github.com/deltrivx/tonecore/releases/tag/v0.7.1) | 2026-09-22 | 修复音源「测试」按钮恒定失败，并去掉主页重复展示、理清两个搜索框的语义。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.7.1.md) |
+| [v0.7.0](https://github.com/deltrivx/tonecore/releases/tag/v0.7.0) | 2026-09-22 | 播放界面改为「底部常驻播放条 + 上浮面板」，主页回归本地歌曲，歌单归曲库，设置页重排并补「关于」。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.7.0.md) |
+| [v0.6.2](https://github.com/deltrivx/tonecore/releases/tag/v0.6.2) | 2026-09-22 | 修复「音源测试」对一批脚本的假阴性误报。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.6.2.md) |
+| [v0.6.1](https://github.com/deltrivx/tonecore/releases/tag/v0.6.1) | 2026-09-22 | 修复音源运行时把新版脚本误判为加载失败，解锁一批可用音源。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.6.1.md) |
+| [v0.6.0](https://github.com/deltrivx/tonecore/releases/tag/v0.6.0) | 2026-09-22 | 主页按 Navidrome 的视觉语言重做，并修掉「删了文件却仍残留曲目」与音源健康度被永久锁死两个问题。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.6.0.md) |
+| [v0.5.1](https://github.com/deltrivx/tonecore/releases/tag/v0.5.1) | 2026-09-22 | 修复 v0.5.0 引入的歌单删除 / 移除曲目失败。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.5.1.md) |
+| [v0.5.0](https://github.com/deltrivx/tonecore/releases/tag/v0.5.0) | 2026-09-22 | 参照 Navidrome / SongLoft 主流结构重做页面：导航收敛为「主页 / 曲库 / 音源 / 设置」四项， | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.5.0.md) |
+| [v0.4.0](https://github.com/deltrivx/tonecore/releases/tag/v0.4.0) | 2026-09-22 | 把「正在播放」整合进音乐库，听歌不必在两个页面之间来回跳；搜索入口收敛为一个。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.4.0.md) |
+| [v0.3.0](https://github.com/deltrivx/tonecore/releases/tag/v0.3.0) | 2026-09-22 | 修复音源取链「全军覆没」级别的根因缺陷，并顺带收紧取链链路的健壮性。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.3.0.md) |
+| [v0.2.0](https://github.com/deltrivx/tonecore/releases/tag/v0.2.0) | 2026-09-21 | 从「无头中枢」升级为**自带完整播放器**：控制台改为侧边栏导航，新增本地播放与 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.2.0.md) |
+| [v0.1.0](https://github.com/deltrivx/tonecore/releases/tag/v0.1.0) | 2026-09-21 | 首个版本。ToneCore 是一个**无头音乐中枢** —— 不做播放器界面，只负责把「想听的歌」 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.1.0.md) |
 
-## 升级方式
+## 镜像标签
 
-Docker Compose：
+镜像由 GitHub Actions **云端构建**并推送至 GHCR（不在本地构建上传）：
 
 ```bash
-docker compose pull && docker compose up -d
+docker pull ghcr.io/deltrivx/tonecore:latest   # 最新稳定版
+docker pull ghcr.io/deltrivx/tonecore:0.17.0    # 锁定版本
 ```
-
-Unraid：在 Docker 页面选中 ToneCore，点击「重建」（或改用 `update_container` 脚本）。
-
-> 数据目录 `/data` 与音乐库 `/music` 均为挂载卷，升级容器不会影响已有数据。
-
-## 发布流程
-
-1. 确认 `apps/server/src/version.ts` 中的版本号已更新
-2. 在 `CHANGELOG.md` 中补充本次变更
-3. 新建 `docs/release-notes/v<版本>.md` 作为发布说明
-4. 提交并推送 `main`
-5. 创建并推送 `v<版本>` 标签，触发镜像构建
-6. 在 GitHub Releases 中以发布说明为内容创建 Release
-
-> 镜像由 GitHub Actions 构建（`.github/workflows/docker.yml`），
-> 不在本地执行 `docker build` 后推送。

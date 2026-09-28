@@ -50,6 +50,9 @@ function normalizeQueueItem(s: any, _i: number): QueueItem {
     filePath,
     origin: filePath ? 'local' : 'remote',
     duration: Number(s.duration) || undefined,
+    // 本地封面文件名必须保留：前端按 /cover/<name> 拼地址，
+    // 丢掉它本地歌在底部播放条上就没有专辑封面。
+    cover: s.cover ? String(s.cover) : undefined,
     coverUrl: s.coverUrl ? String(s.coverUrl) : undefined,
   };
 }
@@ -373,7 +376,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     if (!p || !p.tracks.length) return { ok: false, error: '歌单为空' };
     const items = p.tracks.map((s, i) => normalizeQueueItem({
       title: s.title, artist: s.artist, album: s.album, filePath: s.filePath,
-      platform: 'local', songId: String(s.id),
+      platform: 'local', songId: String(s.id), cover: (s as any).cover,
     }, i));
     const st = await d.player.setQueue(items, 0);
     return { ok: true, ...st };
@@ -400,6 +403,18 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
       error: r.error ?? null,
       status: d.speaker.status,
     };
+  });
+
+  // 二次验证：用户在通知链接里完成验证后，把拿到的 ticket 回填到这里。
+  // ⚠️ 这不是短信验证码 —— 小米 micoapi 的二次验证走 identity/auth/verifyPhone，
+  // 把 ticket 当验证码提交会永远回 81003「仍需验证」。
+  app.post('/api/speaker/verify-ticket', async (req) => {
+    const b = (req.body || {}) as any;
+    const url = String(b.verifyUrl || '').trim();
+    const ticket = String(b.ticket || '').trim();
+    if (!url || !ticket) return { ok: false, error: '请填入验证页面给出的 ticket' };
+    const r = await d.speaker.verifyTicket(url, ticket);
+    return { ok: r.ok, error: r.error ?? null, status: d.speaker.status };
   });
 
   // 提交短信 / 邮箱验证码

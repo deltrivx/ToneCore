@@ -170,17 +170,22 @@
             </div>
           </div>
 
-          <!-- 需要验证码 -->
+          <!-- 二次验证：小米给的链接里完成验证后回填 ticket -->
           <div v-if="needVerify" class="space-y-3 rounded-lg bg-surface-overlay p-3">
-            <div class="text-xs text-amber-400">需要短信 / 邮箱验证码</div>
+            <div class="text-xs text-amber-400">需要二次验证</div>
+            <ol class="text-[11px] text-fg-subtle leading-relaxed list-decimal pl-4 space-y-0.5">
+              <li>点「打开验证页」，在小米页面里完成短信 / 邮箱验证</li>
+              <li><span class="text-fg-muted">不要关页面</span> —— 完成后的页面地址里包含 ticket</li>
+              <li>把整条地址（或地址里的 ticket 值）粘到下面</li>
+            </ol>
             <div>
-              <label class="tc-label">验证码</label>
-              <input v-model="loginForm.code" class="tc-input font-mono text-xs"
-                placeholder="请输入收到的验证码" @keyup.enter="doVerify" />
+              <label class="tc-label">ticket（验证后的页面地址）</label>
+              <input v-model="loginForm.ticket" class="tc-input font-mono text-xs"
+                placeholder="粘贴验证后的页面地址，或其中的 ticket 值" @keyup.enter="doVerifyTicket" />
             </div>
             <div class="flex gap-2">
-              <button class="tc-btn-primary text-xs" :disabled="busy" @click="doVerify">提交验证码</button>
-              <a v-if="verifyUrl" :href="verifyUrl" target="_blank" class="tc-btn text-xs">打开验证页</a>
+              <button class="tc-btn-primary text-xs" :disabled="busy" @click="doVerifyTicket">提交 ticket</button>
+              <a v-if="verifyUrl" :href="verifyUrl" target="_blank" rel="noopener" class="tc-btn text-xs">打开验证页</a>
             </div>
           </div>
 
@@ -439,7 +444,7 @@ function addWakeWord() {
 function removeWakeWord(i) {
   spkForm.value.wakeWords.splice(i, 1);
 }
-const loginForm = ref({ username: '', password: '', code: '' });
+const loginForm = ref({ username: '', password: '', code: '', ticket: '' });
 const needVerify = ref(false);
 const verifyUrl = ref('');
 const verifySign = ref('');
@@ -499,6 +504,38 @@ async function doLogin() {
     }
   } catch (e) {
     spkMsg.value = { ok: false, text: '登录失败：' + e };
+  } finally { busy.value = false; }
+}
+
+/**
+ * 二次验证：小米的验证流程产出的是 ticket，不是短信验证码。
+ * 用户在验证页完成验证后，页面地址里会带 ticket —— 支持直接粘整条地址。
+ */
+async function doVerifyTicket() {
+  busy.value = true; spkMsg.value = null;
+  try {
+    const raw = String(loginForm.value.ticket || '').trim();
+    if (!raw) {
+      spkMsg.value = { ok: false, text: '请粘贴验证完成后的页面地址，或其中的 ticket 值' };
+      return;
+    }
+    let ticket = raw;
+    try {
+      const u = new URL(raw);
+      const q = u.searchParams.get('ticket') || u.searchParams.get('verify_ticket');
+      if (q) ticket = q;
+    } catch { /* 不是 URL，按纯 ticket 处理 */ }
+    const r = await api.speakerVerifyTicket(verifyUrl.value, ticket);
+    if (r && r.ok) {
+      needVerify.value = false;
+      if (r.status) { spk.value = r.status; devices.value = r.status.devices || []; }
+      spkMsg.value = { ok: true, text: '验证成功，已登录' };
+      await loadSpeaker();
+    } else {
+      spkMsg.value = { ok: false, text: '验证失败：' + ((r && r.error) || 'ticket 无效或已使用') };
+    }
+  } catch (e) {
+    spkMsg.value = { ok: false, text: '验证失败：' + e };
   } finally { busy.value = false; }
 }
 
