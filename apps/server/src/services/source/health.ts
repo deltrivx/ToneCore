@@ -104,6 +104,35 @@ export class HealthTracker {
     this.dirty = true;
   }
 
+  /**
+   * 手动「测试」的结果回写健康度。
+   *
+   * 为什么必须有这个方法：此前健康度与手动测试是**两套互不相通的账本** ——
+   * 健康度只由真实取链（getUrl）累计，手动测试只写 testResults。
+   * 于是出现「手动测试通过、界面却显示 0% 不可用」的诡异画面；
+   * 更糟的是 forPlatform() 按健康分排序取前几个，那些从没被自动选中的脚本
+   * 永远刷不出成功记录，健康度死锁在低分，形成**饥饿选择**。
+   *
+   * 现在的口径：手动测试成功即视为一次成功的探活 —— 计成功、清熔断，
+   * 让脚本重新有机会参与取链；手动测试失败同样计入，但只累加一次。
+   */
+  recordProbe(name: string, ok: boolean, ms = 0) {
+    const h = this.get(name);
+    if (ok) {
+      h.success++;
+      if (ms > 0) { h.totalMs += ms; if (h.success === 1) h.totalMs = ms; }
+      h.lastSuccessAt = Date.now();
+      // 关键：清掉连续失败，脚本立刻从熔断里放出来重新参与取链
+      h.consecutiveFailures = 0;
+    } else {
+      h.failure++;
+      h.lastFailureAt = Date.now();
+      h.consecutiveFailures++;
+    }
+    this.dirty = true;
+    this.persist();
+  }
+
   /** 记录一次加载失败（脚本没起来，界面必须能看到原因） */
   recordLoadFailure(name: string, err: string) {
     const h = this.get(name);
@@ -169,7 +198,12 @@ export class HealthTracker {
     const total = h.success + h.failure;
     if (total === 0) return 100;
     const rate = h.success / total;
-    const avgMs = h.success > 0 ? h.totalMs / h.success : 10000;
+    // ⚠️ 没有成功记录时不能套用 10000ms 的默认耗时惩罚：
+    // 那会让「失败过几次但其实可用」的脚本拿到 0 - 100 = -100 分，
+    // 在 forPlatform() 的排序里永久垫底 —— 明明还能用的源再也轮不到。
+    // 没有延迟样本就不扣延迟分（SCRIPTS 可以靠 manual test 自己挣回来）。
+    if (h.success === 0) return rate * 100;
+    const avgMs = h.totalMs / h.success;
     return rate * 100 - avgMs / 100;
   }
 

@@ -7,7 +7,11 @@
       · 底部整幅控制区（进度 / 主控制 / 音量）
     移动端自动上下堆叠，主控制区保持可单手操作。
   -->
-  <div class="fixed inset-0 z-50 overflow-hidden bg-surface">
+  <div
+    class="fixed inset-0 z-50 overflow-hidden bg-surface"
+    @touchstart.passive="onTouchStart"
+    @touchend.passive="onTouchEnd"
+  >
     <!-- 背景层：封面模糊 + 暗色渐变压底，保证文字对比度 -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <img v-if="player.coverUrl.value" :src="player.coverUrl.value"
@@ -207,6 +211,52 @@ let lastVolume = 80;
 function toggleMute() {
   if (state.volume > 0) { lastVolume = state.volume; setVolume(0); }
   else setVolume(lastVolume || 80);
+}
+
+// ---------- 左右滑切歌 ----------
+//
+// 主流音乐 App 的全屏播放页都支持「左滑下一首 / 右滑上一首」，
+// 这里按同一手势对齐。两个必须避开的干扰源：
+//   1) 横向 range 滑块（进度条、音量）—— 它们自己要响应横向拖动，
+//      手势若也吃掉横向位移，用户就没法拖进度了；
+//   2) 歌词区的纵向滚动 —— 竖向位移不算切歌。
+// 因此判据是：起点不在 range 上、且横向位移明显大于纵向。
+
+const swipe = { x0: 0, y0: 0, t0: 0, active: false };
+/** 触发阈值：太小的位移当成误触 */
+const SWIPE_MIN = 60;
+/** 横向必须比纵向明显更大，避免斜着划也算 */
+const SWIPE_RATIO = 1.5;
+
+function onTouchStart(e) {
+  const t = e.touches && e.touches[0];
+  if (!t) return;
+  // 落在滑块上的触摸交给滑块自己处理
+  const tag = (t.target && t.target.tagName ? String(t.target.tagName) : '').toLowerCase();
+  const type = t.target && t.target.type ? String(t.target.type).toLowerCase() : '';
+  if (tag === 'input' || type === 'range') { swipe.active = false; return; }
+  swipe.active = true;
+  swipe.x0 = t.clientX;
+  swipe.y0 = t.clientY;
+  swipe.t0 = Date.now();
+}
+
+function onTouchEnd(e) {
+  if (!swipe.active) return;
+  swipe.active = false;
+  // 队列抽屉打开时不切歌，避免误触（此时用户大概率在操作列表）
+  if (showQueue.value) return;
+  const t = e.changedTouches && e.changedTouches[0];
+  if (!t) return;
+  const dx = t.clientX - swipe.x0;
+  const dy = t.clientY - swipe.y0;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  if (adx < SWIPE_MIN) return;               // 位移太小，当误触
+  if (adx < ady * SWIPE_RATIO) return;       // 更像竖向滚动，不切歌
+  // 左滑（dx<0）→ 下一首；右滑（dx>0）→ 上一首
+  if (dx < 0) next();
+  else prev();
 }
 
 /**

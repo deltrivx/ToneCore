@@ -68,7 +68,44 @@
       </main>
     </div>
 
-    <!-- 底部常驻播放条：始终显示（无播放时为空态），点击曲目区上浮「正在播放」 -->
+    <!-- ============ 入库 / 下载进度面板（浮在播放条上方，不遮挡它） ============ -->
+    <div v-if="dlVisible"
+      class="fixed right-3 md:right-5 z-40 w-[min(340px,calc(100vw-1.5rem))]
+             rounded-lg border border-line bg-surface-raised/95 backdrop-blur shadow-lg overflow-hidden
+             bottom-[132px] md:bottom-[80px]">
+      <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
+        <Icon name="download" :size="14" class="text-accent" />
+        <span class="text-xs font-medium text-fg">入库进度</span>
+        <span v-if="dlActive" class="tc-chip text-[10px]">{{ dlActive }} 个进行中</span>
+        <button class="tc-icon-btn tc-icon-btn-sm ml-auto" title="收起" @click="dlDismissed = true">
+          <Icon name="x" :size="13" />
+        </button>
+      </div>
+
+      <div class="max-h-[240px] overflow-y-auto divide-y divide-line">
+        <div v-for="t in dlTasks" :key="t.id" class="px-3 py-2 space-y-1">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-fg truncate flex-1">{{ t.title }}</span>
+            <span class="text-[10px] tc-num shrink-0"
+              :class="t.status === 'failed' ? 'text-rose-400'
+                    : t.status === 'done' ? 'text-emerald-400' : 'text-fg-subtle'">
+              {{ t.status === 'running'
+                  ? (dlPct(t) ? dlPct(t) + '%' : fmtBytes(t.received))
+                  : t.status === 'done' ? '完成' : '失败' }}
+            </span>
+          </div>
+
+          <!-- 进度条：服务端未给 Content-Length 时百分比为 0，此时显示已下载字节 -->
+          <div v-if="t.status === 'running'" class="h-1 rounded-full bg-white/10 overflow-hidden">
+            <div class="h-full bg-accent transition-all" :style="{ width: (dlPct(t) || 0) + '%' }"></div>
+          </div>
+          <div v-else-if="t.status === 'failed' && t.message"
+            class="text-[10px] text-rose-300 break-words">{{ t.message }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部常驻播放条：始终显示（无播放时为空态），点曲目区直接展开全屏播放页 -->
     <MiniPlayer />
 
     <!-- 移动端底部 Tab（单一导航入口） -->
@@ -93,7 +130,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { api, authState, setToken } from './composables/useApi.js';
 import { usePlayer } from './composables/usePlayer.js';
 import Icon from './components/Icon.vue';
@@ -142,6 +179,54 @@ async function refreshHealth() {
   health.value = await api.health();
 }
 
+// ---------- 入库 / 下载进度 ----------
+//
+// 此前 /api/downloads 在前端有定义却**从未被调用**：点了「入库」之后没有任何
+// 可见反馈，只能等曲库数量变化才知道结果，中途卡住也看不出来。
+const downloads = ref({ tasks: [], active: 0 });
+const dlDismissed = ref(false);
+
+const dlActive = computed(
+  () => (downloads.value.tasks || []).filter((t) => t.status === 'running').length,
+);
+
+/** 进行中的排前面，已结束的按时间倒序最多留 4 条 */
+const dlTasks = computed(() => {
+  const list = downloads.value.tasks || [];
+  const running = list.filter((t) => t.status === 'running');
+  const rest = list
+    .filter((t) => t.status !== 'running')
+    .sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0))
+    .slice(0, 4);
+  return [...running, ...rest];
+});
+
+const dlVisible = computed(
+  () => dlTasks.value.length > 0 && (dlActive.value > 0 || !dlDismissed.value),
+);
+
+function dlPct(t) {
+  if (!t.total) return 0;
+  return Math.min(100, Math.round((t.received / t.total) * 100));
+}
+
+function fmtBytes(n) {
+  const b = Number(n) || 0;
+  if (b < 1024) return `${b}B`;
+  if (b < 1048576) return `${(b / 1024).toFixed(0)}KB`;
+  return `${(b / 1048576).toFixed(1)}MB`;
+}
+
+async function loadDownloads() {
+  try {
+    const r = await api.downloads();
+    if (r) downloads.value = { tasks: r.queue?.tasks || [], active: r.queue?.active || 0 };
+  } catch { /* 拉取失败不影响主界面 */ }
+}
+
+// 有新的下载活动时自动重新展开，避免用户错过进度
+watch(dlActive, (n) => { if (n > 0) dlDismissed.value = false; });
+
 onMounted(async () => {
   // 有令牌先校验一次，避免拿着过期令牌进主界面后满屏 401
   if (authState.value.token) {
@@ -150,6 +235,9 @@ onMounted(async () => {
   }
   await player.init();
   await refreshHealth();
+  await loadDownloads();
   setInterval(refreshHealth, 10000);
+  // 下载进度需要更实时，单独用更短的间隔轮询
+  setInterval(loadDownloads, 2500);
 });
 </script>

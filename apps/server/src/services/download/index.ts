@@ -41,10 +41,35 @@ function sanitize(s: string): string {
 /**
  * 下载器：串行队列 + 风控间隔 + 音频校验 + 路径模板归档。
  */
+/** 单个下载任务的实时状态 */
+export interface DownloadTask {
+  /** 任务 id（唯一，用于前端稳定渲染 key） */
+  id: string;
+  title: string;
+  artist: string;
+  /** 已下载字节 */
+  received: number;
+  /** 总字节（服务端未给 Content-Length 时为 0） */
+  total: number;
+  /** running / done / failed */
+  status: 'running' | 'done' | 'failed';
+  message?: string;
+  startedAt: number;
+  endedAt?: number;
+}
+
 export class Downloader {
   private queue: PQueue;
   private lib: Library;
   private scraper: Scraper | null = null;
+  /**
+   * 任务级进度跟踪。
+   *
+   * 此前 status() 只回 pending/size 两个计数：用户点了「入库」之后
+   * 完全看不到单首歌下到多少、有没有卡住，只能等曲库数量变化才知道结果。
+   */
+  private tasks = new Map<string, DownloadTask>();
+  private taskSeq = 0;
 
   constructor(lib: Library) {
     const cfg = loadConfig();
@@ -67,26 +92,48 @@ export class Downloader {
     this.scraper = scraper;
   }
 
-  /** 队列状态 */
+  /** 队列状态（含任务级进度） */
   status() {
+    const tasks = [...this.tasks.values()];
+    // 只保留最近 50 条已完成/失败记录，避免无限累积
     return {
       pending: this.queue.pending,
       size: this.queue.size,
+      tasks,
+      active: tasks.filter((t) => t.status === 'running').length,
     };
   }
 
+  /** 已完成/失败任务的历史清理（防止内存无界增长） */
+  private pruneTasks(keep = 50): void {
+    const done = [...this.tasks.values()]
+      .filter((t) => t.status !== 'running')
+      .sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
+    for (const t of done.slice(keep)) this.tasks.delete(t.id);
+  }
+
   /** 加入下载队列（不阻塞调用方） */
-  enqueue(song: Song, url: SongUrl): void {
+  enqueue(song: Song, url: SongUrl): string {
+    const id = `t${Date.now().toString(36)}${(this.taskSeq++).toString(36)}`;
+    this.tasks.set(id, {
+      id, title: song.title, artist: song.artist,
+      received: 0, total: 0, status: 'running', startedAt: Date.now(),
+    });
     logger.info({ title: song.title, artist: song.artist, queue: this.queue.size + 1 }, '加入下载队列');
-    this.queue.add(() => this.download(song, url)).catch((e) => {
+    this.queue.add(() => this.download(id, song, url)).catch((e) => {
       logger.error({ err: String(e), title: song.title }, '下载任务异常');
     });
+    return id;
   }
 
   /** 实际下载 + 落库 */
-  private async download(song: Song, url: SongUrl): Promise<void> {
+  private async download(id: string, song: Song, url: SongUrl): Promise<void> {
     const cfg = loadConfig();
     const t0 = Date.now();
+    const prog = (patch: Partial<DownloadTask>) => {
+      const cur = this.tasks.get(id);
+      if (cur) this.tasks.set(id, { ...cur, ...patch });
+    };
 
     try {
       const res = await fetch(url.url, {
@@ -95,9 +142,15 @@ export class Downloader {
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
+      // 服务端给了 Content-Length 才有百分比；没有也要照常显示已下载字节
+      const lenHeader = res.headers.get('content-length');
+      const total = lenHeader ? Number(lenHeader) || 0 : 0;
+      prog({ total });
+
       // 用 asyncIterator 读前若干字节做格式嗅探（不锁流，后续还能继续读）
       const chunks: Buffer[] = [];
       let headLen = 0;
+      let received = 0;
       const iterator = (res.body as any)[Symbol.asyncIterator]();
       while (headLen < 512) {
         const { value, done } = await iterator.next();
@@ -105,6 +158,8 @@ export class Downloader {
         const buf = Buffer.from(value);
         chunks.push(buf);
         headLen += buf.length;
+        received += buf.length;
+        prog({ received });
       }
       const head = Buffer.concat(chunks);
       if (head.length === 0) throw new Error('响应体为空');
@@ -132,7 +187,10 @@ export class Downloader {
         for (;;) {                                    // 继续读剩余
           const { value, done } = await iterator.next();
           if (done) break;
-          fs.writeSync(fd, Buffer.from(value));
+          const buf = Buffer.from(value);
+          fs.writeSync(fd, buf);
+          received += buf.length;
+          prog({ received });
         }
       } finally {
         fs.closeSync(fd);
@@ -140,6 +198,7 @@ export class Downloader {
       fs.renameSync(tmp, absFile);
 
       const size = fs.statSync(absFile).size;
+      prog({ status: 'done', received: size, total: size, endedAt: Date.now() });
       logger.info({
         title: song.title, artist: song.artist, file: relFile,
         sizeMB: +(size / 1048576).toFixed(1), quality: url.quality,
@@ -171,11 +230,15 @@ export class Downloader {
       });
     } catch (e) {
       const msg = String(e).slice(0, 300);
+      // ⚠️ 必须落终态：否则任务永远停在 running，前端进度条会一直转
+      prog({ status: 'failed', message: msg, endedAt: Date.now() });
       logger.warn({ title: song.title, artist: song.artist, err: msg }, '下载失败');
       this.lib.log({
         title: song.title, artist: song.artist, platform: song.platform,
         quality: url.quality, status: 'failed', message: msg,
       });
+    } finally {
+      this.pruneTasks();
     }
   }
 

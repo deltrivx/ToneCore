@@ -322,6 +322,16 @@ export class SourceEngine {
     // 落盘：界面要在「已加载 · 测试结果：…」内联显示，且刷新后保留
     this.testResults[file] = { ok, at: Date.now(), ms, platforms, error: ok ? undefined : lastError };
 
+    // ⚠️ 关键：手动测试的结果必须回写健康度，否则两套账本各记各的 ——
+    // 界面就会出现「手动测通过、自动状态却是 0% 不可用」的矛盾画面。
+    // 回写后：测试成功 → 计一次成功并清掉熔断，脚本重新参与取链；
+    // 测试失败 → 同样计入，避免「测了跟没测一样」。
+    try {
+      this.loader.healthTracker.recordProbe(meta.name || meta.file, ok, ms);
+    } catch (e) {
+      logger.debug({ err: String(e).slice(0, 120) }, '测试结论回写健康度失败（已忽略）');
+    }
+
     if (!ok) {
       return {
         ok: false, ms, platforms,

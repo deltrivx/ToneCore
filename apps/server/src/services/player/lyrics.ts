@@ -27,7 +27,7 @@ export interface LyricResult {
   lines: LyricLine[];
   /** 是否为纯音乐（无歌词） */
   instrumental: boolean;
-  source: 'lrc-file' | 'online' | 'none';
+  source: 'lrc-file' | 'embedded' | 'online' | 'none';
 }
 
 /** 解析 LRC 文本为时间轴行 */
@@ -97,13 +97,26 @@ export class LyricsService {
     platform?: string,
     songId?: string,
   ): Promise<LyricResult> {
-    // ---- 1) 本地同名 .lrc ----
+    // ---- 1) 本地同名 .lrc（用户手工校对过的最准） ----
     const local = this.readLocalLrc(relPath);
     if (local !== null) {
       return { lrc: local, lines: parseLrc(local), instrumental: isInstrumental(local), source: 'lrc-file' };
     }
 
-    // ---- 2) 在线歌词接口 ----
+    // ---- 2) 音频内嵌歌词标签（刮削阶段写进去的，本地原曲的时间轴） ----
+    //
+    // 这一步此前「只在注释里存在」：文档写了三来源，实际只读了同名 .lrc，
+    // 于是本地歌一律回落到在线接口 —— 在线按歌名搜索常命中翻唱，
+    // 时间轴与本地音频对不上，就是用户说的「歌词严重不匹配、时间错乱」。
+    const embedded = await this.readEmbeddedLrc(relPath);
+    if (embedded) {
+      const lines = parseLrc(embedded);
+      if (lines.length) {
+        return { lrc: embedded, lines, instrumental: isInstrumental(embedded), source: 'embedded' };
+      }
+    }
+
+    // ---- 3) 在线歌词接口 ----
     try {
       const { fetchLyrics } = await import('../scraper/lyrics.js');
       const r = await fetchLyrics(title, artist, platform, songId);
@@ -132,5 +145,45 @@ export class LyricsService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 读取音频**内嵌**的歌词标签（FLAC Vorbis / ID3 USLT）。
+   *
+   * 为什么必须有这一步：刮削入库时歌词是写进标签里的（`lyrics: true`），
+   * 而音乐目录下**并不会**生成同名 .lrc（实测 11 个 FLAC 只有 1 个 .lrc）。
+   * 少了这一步，本地歌取歌词会直接落到在线接口 —— 在线按歌名搜索，
+   * 经常命中翻唱/别的版本，时间轴与本地音频完全对不上，
+   * 表现就是「歌词严重不匹配、时间错乱」。
+   *
+   * 优先级排在同名 .lrc 之后（用户手工校对过的应该最准），在线之前。
+   */
+  private async readEmbeddedLrc(relPath?: string): Promise<string | null> {
+    if (!relPath) return null;
+    const cfg = loadConfig();
+    const root = path.resolve(cfg.musicDir);
+    const abs = path.resolve(root, relPath);
+    // 防目录穿越
+    if (abs !== root && !abs.startsWith(root + path.sep)) return null;
+    try {
+      if (!fs.existsSync(abs)) return null;
+      const { parseFile } = await import('music-metadata');
+      const md = await parseFile(abs);
+      const raw = md?.common?.lyrics;
+      const text = Array.isArray(raw) ? raw.join('\n') : (typeof raw === 'string' ? raw : '');
+      if (!text.trim()) return null;
+      // ⚠️ 刮削阶段可能把「非标准前缀」整套写进来（实测抓到 `[kuwo:064]` 开头、
+      // 内容是逐行偏移标记而非 `[mm:ss.xx]` 的形式）。这种文本塞进 parseLrc
+      // 会解析出错误时间轴，必须挡住，宁可走在线也不要错词。
+      return this.looksLikeLrc(text) ? text : null;
+    } catch (e) {
+      logger.debug({ err: String(e).slice(0, 120) }, '读取内嵌歌词失败');
+      return null;
+    }
+  }
+
+  /** 是否为「真」LRC：存在至少一行标准时间标签 */
+  private looksLikeLrc(text: string): boolean {
+    return /\[\d{1,3}:\d{1,2}(?:[:.]\d{1,3})?\]/.test(text);
   }
 }
