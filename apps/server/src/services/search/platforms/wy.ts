@@ -1,5 +1,6 @@
 import { fetchJson, toSeconds } from '../http.js';
 import type { Song } from '../../source/types.js';
+import { logger } from '../../../logger.js';
 
 /**
  * 检索维度 → 网易 `type` 参数。
@@ -28,14 +29,18 @@ export async function searchWy(
     headers: { Referer: 'https://music.163.com/' },
   });
 
-  const list = j?.result?.songs || [];
-  return list.map((x: any) => ({
+  const list: any[] = j?.result?.songs || [];
+  const songs: Song[] = list.map((x: any) => ({
     platform: 'wy',
     id: String(x.id || ''),
     title: String(x.name || ''),
     artist: (x.artists || []).map((a: any) => a.name).join('/'),
     album: x.album?.name ? String(x.album.name) : undefined,
     duration: toSeconds(x.duration),
+    // ⚠️ 实测：搜索接口返回的 album 里**只有 picId，没有 picUrl**
+    // （字段实测为 ['artist','copyrightId','id','mark','name','picId',...]）。
+    // 所以这里恒为 undefined —— 在线搜索结果一直没封面，
+    // 真正的封面要靠下面 fillWyCovers() 批量补。
     coverUrl: x.album?.picUrl ? String(x.album.picUrl) : undefined,
     qualities: ['128k', '320k', 'flac'],
     raw: {
@@ -46,6 +51,43 @@ export async function searchWy(
       img: x.album?.picUrl,
     },
   })).filter((s: Song) => s.id && s.title);
+
+  await fillWyCovers(songs);
+  return songs;
+}
+
+/**
+ * 批量补齐网易封面。
+ *
+ * 搜索接口不给 picUrl（只有 picId），要再调一次 `song/detail` 才能拿到真地址。
+ * 一次批量请求拿全部，避免逐首请求把搜索拖慢。
+ *
+ * ⚠️ 失败必须静默：封面只是锦上添花，补不到不该让搜索整体失败。
+ */
+async function fillWyCovers(songs: Song[]): Promise<void> {
+  const missing = songs.filter((s) => !s.coverUrl && s.id);
+  if (!missing.length) return;
+  try {
+    const ids = encodeURIComponent('[' + missing.map((s) => s.id).join(',') + ']');
+    const j = await fetchJson<any>(
+      `https://music.163.com/api/song/detail?ids=${ids}`,
+      { headers: { Referer: 'https://music.163.com/' } },
+    );
+    const picById = new Map<string, string>();
+    for (const s of j?.songs || []) {
+      const pic = s?.album?.picUrl;
+      if (pic) picById.set(String(s.id), String(pic));
+    }
+    for (const s of missing) {
+      const pic = picById.get(s.id);
+      if (!pic) continue;
+      s.coverUrl = pic;
+      // raw.img 也补上：洛雪音源脚本按这个字段取封面
+      if (s.raw) (s.raw as any).img = pic;
+    }
+  } catch (e) {
+    logger.debug({ err: String(e).slice(0, 120) }, '网易封面补全失败（不影响搜索结果）');
+  }
 }
 
 /**

@@ -5,6 +5,24 @@
 
 ---
 
+## [v0.24.0] - 2026-09-28
+
+<!-- summary: 修在线搜索专辑图（网易只返回 picId，需再取 song/detail 补图） -->
+
+### 修复
+
+- **在线搜索结果依然没有专辑图**（对 v0.23.0 的修正）：
+  v0.23.0 改的 `normalizeSearchResult()` 是**死代码** —— 全项目零调用方，
+  那处修复等于没做。真正的搜索走 `services/search/platforms/wy.ts`。
+  实测根因：网易云搜索接口返回的 `album` 里**只有 `picId`，没有 `picUrl`**
+  （实际字段为 `artist/copyrightId/id/mark/name/picId/publishTime/size/status`），
+  而代码读的正是 `x.album?.picUrl` → 恒为 `undefined`。
+  修法：新增 `fillWyCovers()`，批量调 `/api/song/detail?ids=[...]` 补真实
+  `picUrl`（一次批量请求，不逐首拖慢搜索）；同时回填 `raw.img`
+  （洛雪音源脚本按这个字段取封面）。补图失败静默，不影响搜索结果。
+
+---
+
 ## [v0.23.0] - 2026-09-28
 
 <!-- summary: 修在线/锁屏专辑图；曲库页取消歌单；新增在线音乐推荐 -->

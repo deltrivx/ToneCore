@@ -5,7 +5,7 @@
 本页是 **ToneCore 的版本索引**。GitHub Releases 侧栏按发布时间排序，本页按语义化版本号排序，
 避免后补的旧版本让版本顺序看起来错乱。
 
-**当前稳定版：** [v0.23.0](https://github.com/deltrivx/tonecore/releases/tag/v0.23.0)
+**当前稳定版：** [v0.24.0](https://github.com/deltrivx/tonecore/releases/tag/v0.24.0)
 
 > 本文件由 `scripts/gen_releases.py` 从 `CHANGELOG.md` 生成，修改请改 CHANGELOG 后重新生成。
 
@@ -13,6 +13,7 @@
 
 | Version | 日期 | 更新摘要 | 发布说明 |
 |---|---|---|---|
+| [v0.24.0](https://github.com/deltrivx/tonecore/releases/tag/v0.24.0) | 2026-09-28 | 修在线搜索专辑图（网易只返回 picId，需再取 song/detail 补图） | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.24.0.md) |
 | [v0.23.0](https://github.com/deltrivx/tonecore/releases/tag/v0.23.0) | 2026-09-28 | 修在线/锁屏专辑图；曲库页取消歌单；新增在线音乐推荐 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.23.0.md) |
 | [v0.22.0](https://github.com/deltrivx/tonecore/releases/tag/v0.22.0) | 2026-09-28 | 新增系统媒体控件（锁屏显示歌名/歌手/专辑图）；滑动切歌收窄到专辑图；歌词加一键对齐 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.22.0.md) |
 | [v0.21.0](https://github.com/deltrivx/tonecore/releases/tag/v0.21.0) | 2026-09-28 | 统一音源状态口径；歌词支持偏移校准并解析 [offset:]；左右滑切歌加跟手动画 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.21.0.md) |
@@ -55,5 +56,5 @@
 
 ```bash
 docker pull ghcr.io/deltrivx/tonecore:latest   # 最新稳定版
-docker pull ghcr.io/deltrivx/tonecore:0.23.0    # 锁定版本
+docker pull ghcr.io/deltrivx/tonecore:0.24.0    # 锁定版本
 ```
