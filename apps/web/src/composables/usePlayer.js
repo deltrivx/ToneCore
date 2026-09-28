@@ -238,6 +238,10 @@ export function usePlayer() {
     const next = !state.playing;
     applyState(await api.playerPlaying(next));
     if (a) {
+      // ⚠️ 必须补 src：刷新页面后 init() 只恢复了 playUrl，audio 元素还没有 src。
+      // 少了这一步，点播放会在空 src 上调 play() → 一直卡在 waiting（界面显示「缓冲中」），
+      // 而换一首走 playList() 会设 src 所以正常 —— 表现为「只有续播会卡」。
+      if (next && !a.src) a.src = state.playUrl;
       if (next) a.play().catch(() => {});
       else a.pause();
     }

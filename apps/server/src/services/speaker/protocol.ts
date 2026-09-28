@@ -146,7 +146,14 @@ function parseMiLoginBody(text: string): any {
 export interface MiLoginResult {
   ok: boolean;
   /** 需要短信 / 邮箱验证码时返回，配合 verifyMiLogin 完成 */
-  needVerify?: { notificationUrl?: string; _sign?: string };
+  needVerify?: {
+    notificationUrl?: string;
+    _sign?: string;
+    /** 第一步拿到的 qs / serviceParam / callback —— 校验步骤必须原样带回去 */
+    qs?: string;
+    serviceParam?: string;
+    callback?: string;
+  };
   /** 登录成功后可直接构造 MinaConfig */
   mina?: MinaConfig;
   /** 失败原因（用于前端展示） */
@@ -154,42 +161,79 @@ export interface MiLoginResult {
   raw?: unknown;
 }
 
+/** 登录上下文（第一步 /pass/serviceLogin 的回传值） */
+interface LoginContext {
+  sign: string;
+  qs: string;
+  serviceParam: string;
+  callback: string;
+  /** 已登录状态下才会返回 */
+  userId: string;
+  ssecurity: string;
+}
+
+/** 从响应里取指定 cookie（Node fetch 不自动管理 cookie，需手动取） */
+function cookieFrom(res: Response, name: string): string {
+  const h = res.headers as any;
+  const raws: string[] = typeof h.getSetCookie === "function"
+    ? h.getSetCookie()
+    : (res.headers.get("set-cookie") ? [String(res.headers.get("set-cookie"))] : []);
+  for (const c of raws) {
+    const m = /^([^=]+)=([^;]*)/.exec(c);
+    if (m && m[1].trim() === name) return decodeURIComponent(m[2].trim());
+  }
+  return "";
+}
+
 /**
- * 步骤一：账号密码登录小米账号（对应 SongLoft 的 need_verify 分支）。
+ * 第一步：取登录上下文。
+ *
+ * ⚠️ 端点必须是 /pass/serviceLogin，不是 /fe/service/identity/authStart。
+ * 实测（2026-09-28）：authStart 已改为直接返回 React 登录页 HTML（约 22KB），
+ * 不再是 JSON，解析不出 _sign ⇒ 第二步必然 code=10001。
+ * _json=true 是拿到 JSON 的必要条件（不带则同样返回 HTML）。
+ *
+ * 已登录状态下这一步会额外返回 userId / ssecurity（code=0）。
+ * 验证码校验完成后要靠它补齐 ssecurity —— 对齐 HA 复用 _login_step1 的做法：
+ * ssecurity 只在 step1 返回，location 的响应里没有。
+ */
+async function fetchLoginContext(cookie = ""): Promise<LoginContext> {
+  const fallback: LoginContext = {
+    sign: "",
+    qs: "%3Fsid%3Dmicoapi%26_json%3Dtrue",
+    serviceParam:
+      "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D",
+    callback: "https://api2.mina.mi.com/sts",
+    userId: "",
+    ssecurity: "",
+  };
+  try {
+    const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLogin?sid=micoapi&_json=true`, {
+      method: "GET",
+      headers: cookie ? { ...MI_LOGIN_HEADERS, Cookie: cookie } : MI_LOGIN_HEADERS,
+    });
+    const b = parseMiLoginBody(await res.text());
+    return {
+      sign: String(b?._sign ?? b?.context ?? ""),
+      qs: String(b?.qs ?? fallback.qs),
+      serviceParam: String(b?.serviceParam ?? fallback.serviceParam),
+      callback: String(b?.callback ?? fallback.callback),
+      userId: String(b?.userId ?? ""),
+      ssecurity: String(b?.ssecurity ?? ""),
+    };
+  } catch (e) {
+    logger.debug({ err: String(e) }, "获取登录上下文失败");
+    return fallback;
+  }
+}
+
+/**
+ * 步骤一：账号密码登录小米账号。
  * 成功直接拿到 serviceToken/ssecurity → 可直接用；需要验证码则返回 notificationUrl。
  */
 export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResult> {
-  // 关键：小米要求先拿登录上下文 _sign，缺少它会稳定返回
-  // code=10001「系统错误」/ 70016「登录验证失败」——与账号密码是否正确无关。
-  //
-  // ⚠️ 端点必须是 /pass/serviceLogin，不是 /fe/service/identity/authStart。
-  // 实测（2026-09-28）：authStart 现在直接返回 React 登录页 HTML（22KB），
-  // 不再是 JSON，解析不出 _sign，于是后续登录必然 10001。
-  // 而 /pass/serviceLogin?sid=micoapi&_json=true 仍返回 JSON 且带 28 位 _sign。
-  // 同时服务端会回传 qs / serviceParam / callback，用它的值比本地硬编码更稳。
-  let sign = "";
-  let qs = "%3Fsid%3Dmicoapi%26_json%3Dtrue";
-  let serviceParam =
-    "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D";
-  let callback = "https://api2.mina.mi.com/sts";
-  try {
-    const startRes = await fetch(
-      `${MINA_LOGIN_BASE}/pass/serviceLogin?sid=micoapi&_json=true`,
-      {
-        method: "GET",
-        headers: MI_LOGIN_HEADERS,
-      },
-    );
-    const startBody = parseMiLoginBody(await startRes.text());
-    sign = String(startBody?._sign ?? startBody?.context ?? "");
-    if (startBody?.qs) qs = String(startBody.qs);
-    if (startBody?.serviceParam) serviceParam = String(startBody.serviceParam);
-    if (startBody?.callback) callback = String(startBody.callback);
-  } catch (e) {
-    logger.debug({ err: String(e) }, "获取登录上下文失败，继续尝试无 sign 登录");
-  }
-
-  if (!sign) {
+  const ctx = await fetchLoginContext();
+  if (!ctx.sign) {
     logger.warn("未能取得登录上下文 _sign，登录很可能返回 code=10001");
   }
 
@@ -199,14 +243,14 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
   // 已在 hashPassword() 里统一处理，调用方传明文即可。
   const params = new URLSearchParams({
     _json: "true",
-    qs,
+    qs: ctx.qs,
     sid: "micoapi",
-    serviceParam,
+    serviceParam: ctx.serviceParam,
     user: c.username,
     hash: hashPassword(c.password),
-    callback,
+    callback: ctx.callback,
   });
-  if (sign) params.set("_sign", sign);
+  if (ctx.sign) params.set("_sign", ctx.sign);
 
   const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2?_json=true`, {
     method: "POST",
@@ -220,22 +264,28 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
   const j = parseMiLoginBody(await res.text());
   if (!j || typeof j !== "object") return { ok: false, error: "登录响应无法解析", raw: j };
 
+  // 直接成功：location 指向 STS，serviceToken 由 Set-Cookie 下发（见 finishLogin）
+  if (j.location) return await finishLogin(j, ctx);
+
   const userId = j.userId ? String(j.userId) : "";
   const ssecurity = String(j.ssecurity ?? "");
   const serviceToken = String(j.serviceToken ?? "");
-
   if (serviceToken && ssecurity && userId) {
     return { ok: true, mina: { userId, serviceToken, ssecurity } };
   }
 
-  // 需要短信 / 邮箱验证码：把你自己的 _sign 一并带出去，供第二步提交
-  const needCode = j.notificationUrl || String(j._sign ?? "") || sign;
-  if (needCode) {
+  // 需要短信 / 邮箱验证码：把完整登录上下文带出去，供校验步骤原样复用
+  const code0 = String(j.code ?? "");
+  const needsVerify = !!j.notificationUrl || code0 === "81003";
+  if (needsVerify) {
     return {
       ok: false,
       needVerify: {
         notificationUrl: String(j.notificationUrl ?? ""),
-        _sign: String(j._sign ?? sign),
+        _sign: String(j._sign ?? ctx.sign),
+        qs: ctx.qs,
+        serviceParam: ctx.serviceParam,
+        callback: ctx.callback,
       },
       error: "需要短信/邮箱验证码",
       raw: j,
@@ -248,6 +298,62 @@ export async function loginMiAccount(c: MiLoginCredentials): Promise<MiLoginResu
     error: describeLoginCode(code, String(j.desc ?? j.description ?? "")),
     raw: j,
   };
+}
+
+/** 校验步骤要复用的登录上下文 */
+export interface VerifyContext {
+  sign: string;
+  qs: string;
+  serviceParam: string;
+  callback: string;
+}
+
+/**
+ * 第三步：跟随 location 换取 serviceToken（对齐 Home Assistant 的 `_login_step3`）。
+ *
+ * ⚠️ micoapi 的 location 指向 api2.mina.mi.com/sts，serviceToken 是通过
+ * **Set-Cookie** 下发的，**不在响应体里**。旧实现只在 JSON 里找 serviceToken，
+ * 找不到就当成失败 —— 这是「验证码明明对却报登录验证失败」的一个成因。
+ *
+ * 另外 micoapi 需要在 location 后追加 clientSign，否则 STS 返回 401。
+ */
+async function finishLogin(j: any, ctx: VerifyContext, cookie = ""): Promise<MiLoginResult> {
+  const userId = String(j?.userId ?? "");
+  const ssecurity = String(j?.ssecurity ?? "");
+  const location = String(j?.location ?? "");
+  const nonce = String(j?.nonce ?? "");
+
+  if (!location || !userId || !ssecurity) {
+    return {
+      ok: false,
+      error: String(j?.desc ?? j?.error ?? "登录未完成（缺少 location 或凭据字段）"),
+      raw: j,
+    };
+  }
+
+  let url = location;
+  if (nonce) {
+    // clientSign = base64(sha1("nonce=<nonce>&<ssecurity>"))
+    const cs = crypto.createHash("sha1").update(`nonce=${nonce}&${ssecurity}`).digest("base64");
+    url += `&clientSign=${encodeURIComponent(cs)}`;
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      // 带上校验步骤积累的 cookie：STS 依赖 identity session 才肯下发 serviceToken
+      headers: cookie ? { "User-Agent": MI_LOGIN_UA, Cookie: cookie } : { "User-Agent": MI_LOGIN_UA },
+    });
+    const svc = cookieFrom(res, "serviceToken");
+    const uid = cookieFrom(res, "userId") || userId;
+    if (svc) return { ok: true, mina: { userId: uid, serviceToken: svc, ssecurity } };
+    // 兜底：个别链路会把它放在响应体里
+    const bodyToken = String(j?.serviceToken ?? "");
+    if (bodyToken) return { ok: true, mina: { userId, serviceToken: bodyToken, ssecurity } };
+    return { ok: false, error: "已通过登录但未取到 serviceToken", raw: { status: res.status, url } };
+  } catch (e) {
+    return { ok: false, error: "换取 serviceToken 失败：" + String(e).slice(0, 120), raw: j };
+  }
 }
 
 /** 把小米错误码翻成人能看懂的一句话 */
@@ -267,35 +373,115 @@ export function describeLoginCode(code: number, desc: string): string {
   return code && !table[code] ? `${base}（code=${code}）` : base;
 }
 
-/** 步骤二：提交短信 / 邮箱验证码完成登录 */
+/** 默认 serviceParam（第一步未回传时的兜底） */
+const DEFAULT_SERVICE_PARAM =
+  "%7B%22checkSafePhone%22%3Afalse%2C%22checkSafeAddress%22%3Afalse%2C%22lsrp_score%22%3A0.0%7D";
+
+/** 把响应里的 Set-Cookie 拼成后续请求的 Cookie 头 */
+function cookieHeaderFrom(res: Response): string {
+  const h = res.headers as any;
+  const raws: string[] = typeof h.getSetCookie === "function"
+    ? h.getSetCookie()
+    : (res.headers.get("set-cookie") ? [String(res.headers.get("set-cookie"))] : []);
+  const parts: string[] = [];
+  for (const c of raws) {
+    const m = /^([^=]+)=([^;]*)/.exec(c);
+    if (m) parts.push(`${m[1].trim()}=${m[2].trim()}`);
+  }
+  return parts.join("; ");
+}
+
+/**
+ * 步骤二：提交短信 / 邮箱验证码完成登录。
+ *
+ * 对齐 Home Assistant（xiaomi_miot/core/xiaomi_cloud.py 的 `_login_step2`）后修正的三处：
+ *
+ * 1. **必须带 hash（密码 MD5 大写）**。HA 的 step2 无条件带上它；我们原先只在
+ *    密码登录时传、验证码校验时不传，小米于是稳定返回 70016「登录验证失败」，
+ *    **与验证码是否正确完全无关** —— 这正是「验证码没错却报登录验证失败」的成因。
+ * 2. **必须带第一步回传的 qs / serviceParam / callback / _sign**，不能本地硬编码。
+ * 3. **成功时响应体里没有 serviceToken**。返回的是 location（指向 api2.mina.mi.com/sts），
+ *    serviceToken 由该请求的 **Set-Cookie** 下发；且 ssecurity 只在第一步返回，
+ *    校验响应里没有，需重新取一次补齐（HA 源码对此有明确注释）。
+ *    旧实现只在 JSON 里找 serviceToken，找不到就判失败。
+ */
 export async function verifyMiLogin(
   c: MiLoginCredentials,
   code: string,
   sign: string,
+  ctx?: Partial<VerifyContext>,
 ): Promise<MiLoginResult> {
   const params = new URLSearchParams({
     _json: "true",
     user: c.username,
+    hash: hashPassword(c.password),
     code,
     _sign: sign,
-    callback: "https://api2.mina.mi.com/sts",
+    callback: ctx?.callback || "https://api2.mina.mi.com/sts",
+    qs: ctx?.qs || "%3Fsid%3Dmicoapi%26_json%3Dtrue",
     sid: "micoapi",
+    serviceParam: ctx?.serviceParam || DEFAULT_SERVICE_PARAM,
   });
 
-  const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2`, {
+  const res = await fetch(`${MINA_LOGIN_BASE}/pass/serviceLoginAuth2?_json=true`, {
     method: "POST",
     headers: { "User-Agent": MI_LOGIN_UA, "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),
   });
 
   const j = parseMiLoginBody(await res.text());
-  const userId = j?.userId ? String(j.userId) : "";
-  const ssecurity = String(j?.ssecurity ?? "");
-  const serviceToken = String(j?.serviceToken ?? "");
+  if (!j || typeof j !== "object") return { ok: false, error: "校验响应无法解析", raw: j };
+
+  const jar = cookieHeaderFrom(res);
+
+  // 校验通过：location → 换 serviceToken（Set-Cookie）
+  if (j.location) {
+    let ssecurity = String(j.ssecurity ?? "");
+    let userId = String(j.userId ?? "");
+    // ssecurity 只在第一步返回，校验响应里通常没有 → 带上 cookie 再取一次
+    if (!ssecurity || !userId) {
+      const fresh = await fetchLoginContext(jar);
+      ssecurity = ssecurity || fresh.ssecurity;
+      userId = userId || fresh.userId;
+    }
+    const full: VerifyContext = {
+      sign,
+      qs: ctx?.qs || "%3Fsid%3Dmicoapi%26_json%3Dtrue",
+      serviceParam: ctx?.serviceParam || DEFAULT_SERVICE_PARAM,
+      callback: ctx?.callback || "https://api2.mina.mi.com/sts",
+    };
+    return finishLogin({ ...j, ssecurity, userId }, full, jar);
+  }
+
+  // 响应体里直接给了完整凭据（少数链路）
+  const userId = String(j.userId ?? "");
+  const ssecurity = String(j.ssecurity ?? "");
+  const serviceToken = String(j.serviceToken ?? "");
   if (serviceToken && ssecurity && userId) {
     return { ok: true, mina: { userId, serviceToken, ssecurity } };
   }
-  return { ok: false, error: String(j?.desc ?? j?.error ?? "验证码校验失败"), raw: j };
+
+  const code0 = Number(j.code ?? 0);
+  if (code0 === 81003 || j.notificationUrl) {
+    return {
+      ok: false,
+      needVerify: {
+        notificationUrl: String(j.notificationUrl ?? ""),
+        _sign: String(j._sign ?? sign),
+        qs: ctx?.qs,
+        serviceParam: ctx?.serviceParam,
+        callback: ctx?.callback,
+      },
+      error: "仍需验证，请重新获取验证码",
+      raw: j,
+    };
+  }
+
+  return {
+    ok: false,
+    error: describeLoginCode(code0, String(j.desc ?? j.description ?? "验证码校验失败")),
+    raw: j,
+  };
 }
 
 

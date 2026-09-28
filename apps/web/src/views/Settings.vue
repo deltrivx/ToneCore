@@ -443,6 +443,8 @@ const loginForm = ref({ username: '', password: '', code: '' });
 const needVerify = ref(false);
 const verifyUrl = ref('');
 const verifySign = ref('');
+/** 第一步的登录上下文，校验时必须原样带回去（缺了会被判 70016） */
+const verifyCtx = ref({ qs: '', serviceParam: '', callback: '' });
 const busy = ref(false);
 const spkMsg = ref(null);
 const devices = ref([]);
@@ -486,6 +488,11 @@ async function doLogin() {
       needVerify.value = true;
       verifyUrl.value = r.notificationUrl || '';
       verifySign.value = r.sign || '';
+      verifyCtx.value = {
+        qs: r.qs || '',
+        serviceParam: r.serviceParam || '',
+        callback: r.callback || '',
+      };
       spkMsg.value = { ok: false, text: '需要验证码，已发送至你的手机 / 邮箱' };
     } else {
       spkMsg.value = { ok: false, text: '登录失败：' + ((r && r.error) || '未知错误') };
@@ -503,6 +510,9 @@ async function doVerify() {
       password: loginForm.value.password,
       code: loginForm.value.code.trim(),
       sign: verifySign.value,
+      qs: verifyCtx.value.qs,
+      serviceParam: verifyCtx.value.serviceParam,
+      callback: verifyCtx.value.callback,
     });
     if (r && r.ok) {
       needVerify.value = false;

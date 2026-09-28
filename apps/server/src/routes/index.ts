@@ -393,6 +393,10 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
       needVerify: !!r.needVerify,
       notificationUrl: r.needVerify ? r.needVerify.notificationUrl : null,
       sign: r.needVerify ? r.needVerify._sign : null,
+      // 第一步的登录上下文，校验步骤必须原样带回来
+      qs: r.needVerify ? r.needVerify.qs : null,
+      serviceParam: r.needVerify ? r.needVerify.serviceParam : null,
+      callback: r.needVerify ? r.needVerify.callback : null,
       error: r.error ?? null,
       status: d.speaker.status,
     };
@@ -406,7 +410,14 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     const code = String(b.code || '').trim();
     const sign = String(b.sign || '');
     if (!username || !password || !code || !sign) return { ok: false, error: '验证码参数不完整' };
-    const r = await d.speaker.verify(username, password, code, sign);
+    // 校验步骤必须复用第一步的登录上下文（qs / serviceParam / callback），
+    // 缺了它们小米会返回 70016「登录验证失败」——与验证码是否正确无关。
+    const ctx = {
+      qs: b.qs ? String(b.qs) : undefined,
+      serviceParam: b.serviceParam ? String(b.serviceParam) : undefined,
+      callback: b.callback ? String(b.callback) : undefined,
+    };
+    const r = await d.speaker.verify(username, password, code, sign, ctx);
     return { ok: r.ok, error: r.error ?? null, status: d.speaker.status };
   });
 

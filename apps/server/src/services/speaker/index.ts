@@ -351,8 +351,14 @@ export class SpeakerService {
   }
 
   /** 提交短信 / 邮箱验证码完成登录 */
-  async verify(username: string, password: string, code: string, sign: string): Promise<MiLoginResult> {
-    const r = await verifyMiLogin({ username, password }, code, sign);
+  async verify(
+    username: string,
+    password: string,
+    code: string,
+    sign: string,
+    ctx?: { qs?: string; serviceParam?: string; callback?: string },
+  ): Promise<MiLoginResult> {
+    const r = await verifyMiLogin({ username, password }, code, sign, ctx);
     if (r.ok && r.mina) {
       this.cfg = {
         ...this.cfg,
