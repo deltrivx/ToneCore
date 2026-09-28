@@ -30,6 +30,24 @@ export interface LyricResult {
   source: 'lrc-file' | 'embedded' | 'online' | 'none';
 }
 
+/**
+ * LRC 声明的全局偏移（毫秒）。
+ *
+ * 标准 `[offset:xxx]` 标签：正值表示歌词整体**延后**，负值表示提前。
+ * 酷我等源会输出这个标签（实测歌词里就带 `[offset:0]`），此前从未解析 ——
+ * 带前奏的歌因此普遍对不上。
+ *
+ * ⚠️ 单位口径：LRC 标准里 `[offset:]` 的单位是**毫秒**，且 + 号表示延后。
+ */
+export function parseLrcOffset(lrc: string): number {
+  if (!lrc) return 0;
+  const m = lrc.match(/\[offset:\s*([+-]?\d+)\s*\]/i);
+  if (!m) return 0;
+  const v = Number(m[1]);
+  if (!Number.isFinite(v)) return 0;
+  return v;
+}
+
 /** 解析 LRC 文本为时间轴行 */
 export function parseLrc(lrc: string): LyricLine[] {
   const out: LyricLine[] = [];
@@ -54,7 +72,13 @@ export function parseLrc(lrc: string): LyricLine[] {
     }
   }
 
-  return out.sort((a, b) => a.time - b.time);
+  // 应用 LRC 自带的全局偏移：+ 表示整体延后（单位毫秒）
+  const offsetSec = parseLrcOffset(lrc) / 1000;
+  const shifted = offsetSec
+    ? out.map((l) => ({ ...l, time: Math.max(0, l.time + offsetSec) }))
+    : out;
+
+  return shifted.sort((a, b) => a.time - b.time);
 }
 
 /** 判断是否为纯音乐标记 */

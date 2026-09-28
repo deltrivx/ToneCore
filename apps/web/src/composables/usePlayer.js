@@ -43,6 +43,14 @@ const state = reactive({
   /** 歌词 */
   lyrics: { lines: [], source: 'none' },
   lyricIndex: -1,
+  /**
+   * 歌词偏移（秒）。正值 = 歌词提前出现，负值 = 歌词延后。
+   *
+   * 用于补偿最普遍的一种错位：歌曲有前奏，而歌词从第 0 秒就开始。
+   * 这种错位是**整首歌整体平移**，不是某一句错 —— 只能整体校正，
+   * 逐句改歌词是治不好的。按曲目记忆，切歌自动换。
+   */
+  lyricOffset: 0,
 });
 
 /** 原生 audio 元素（懒创建，只有真正播放时才建） */
@@ -103,6 +111,8 @@ function applyState(r) {
     state.duration = 0;
     state.error = null;
     state.lyricIndex = -1;
+    // 切歌时偏移要跟着换：每首歌的前奏长度不同，错位量也不同
+    state.lyricOffset = loadLyricOffset(state.queue[state.index]);
     const a = ensureAudio();
     if (a && state.playUrl) {
       state.loading = true;
@@ -188,10 +198,43 @@ export function saveProgressNow() {
   } catch { /* 进度丢失不致命，静默 */ }
 }
 
+/** 歌词偏移的持久化键：按曲目区分（同一首歌在不同位置错得不一样） */
+function lyricOffsetKey(c) {
+  if (!c) return '';
+  return String(c.filePath || c.songId || `${c.title || ''}|${c.artist || ''}`);
+}
+
+function loadLyricOffset(c) {
+  const k = lyricOffsetKey(c);
+  if (!k) return 0;
+  try { return Number(localStorage.getItem('tc.lyricOffset.' + k)) || 0; }
+  catch { return 0; }
+}
+
+/**
+ * 调整歌词偏移。
+ * delta > 0 → 歌词提前；delta < 0 → 歌词延后。
+ * 有前奏的歌通常要**延后**（delta 取负）。
+ */
+export function setLyricOffset(delta) {
+  const next = Math.max(-60, Math.min(60,
+    Math.round(((state.lyricOffset || 0) + delta) * 10) / 10));
+  state.lyricOffset = next;
+  const k = lyricOffsetKey(state.queue[state.index]);
+  if (k) {
+    try {
+      if (next === 0) localStorage.removeItem('tc.lyricOffset.' + k);
+      else localStorage.setItem('tc.lyricOffset.' + k, String(next));
+    } catch { /* 隐私模式忽略 */ }
+  }
+  syncLyricIndex();
+}
+
 function syncLyricIndex() {
   const lines = state.lyrics.lines;
   if (!lines.length) return;
-  const t = state.currentTime + 0.25;      // 稍微提前，歌词更跟手
+  // 叠加用户校准的偏移量；+0.25 是让歌词略微跟手
+  const t = state.currentTime + 0.25 + (state.lyricOffset || 0);
   let lo = 0, hi = lines.length - 1, ans = -1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
@@ -372,7 +415,7 @@ export function usePlayer() {
 
   return {
     state,
-    saveProgressNow, current, coverUrl, hasNext, REPEAT_META,
+    saveProgressNow, current, coverUrl, hasNext, REPEAT_META, setLyricOffset,
     init, playList, append, play, pause, toggle, next, prev, jump, seek,
     setVolume, cycleRepeat, removeAt, clear, toggleExpand, expand, collapse, refresh,
   };

@@ -10,6 +10,7 @@
   <div
     class="fixed inset-0 z-50 overflow-hidden bg-surface"
     @touchstart.passive="onTouchStart"
+    @touchmove.passive="onTouchMove"
     @touchend.passive="onTouchEnd"
   >
     <!-- 背景层：封面模糊 + 暗色渐变压底，保证文字对比度 -->
@@ -19,7 +20,12 @@
       <div class="absolute inset-0 bg-gradient-to-b from-surface/70 via-surface/85 to-surface"></div>
     </div>
 
-    <div class="relative h-full flex flex-col">
+    <!-- 内容层：左右滑切歌时整体平移（跟手拖动会去掉过渡，松手后回弹/滑出才带动画） -->
+    <div
+      class="relative h-full flex flex-col will-change-transform"
+      :class="swiping ? 'transition-transform duration-200 ease-out' : (swipeShift ? '' : 'transition-transform duration-200 ease-out')"
+      :style="{ transform: `translateX(${swipeShift}px)` }"
+    >
       <!-- 顶栏 -->
       <div class="h-[58px] shrink-0 flex items-center gap-3 px-4 md:px-6">
         <button class="tc-icon-btn" title="收起" @click="toggleExpand">
@@ -66,6 +72,22 @@
 
         <!-- 右：歌词 -->
         <div class="flex-1 min-h-0 flex flex-col">
+          <!-- 歌词校准：带前奏的歌整首平移，只能整体校正 -->
+          <div v-if="state.lyrics.lines.length"
+            class="shrink-0 flex items-center justify-center gap-1.5 px-4 py-1.5">
+            <span class="text-[10px] text-fg-subtle">歌词校准</span>
+            <button class="tc-btn-ghost text-[11px] px-1.5 py-0.5"
+              title="歌词提前 0.5 秒" @click="setLyricOffset(0.5)">−0.5s</button>
+            <span class="tc-num text-[11px] w-12 text-center"
+              :class="state.lyricOffset ? 'text-accent' : 'text-fg-subtle'">
+              {{ (state.lyricOffset > 0 ? '+' : '') + Number(state.lyricOffset || 0).toFixed(1) }}s
+            </span>
+            <button class="tc-btn-ghost text-[11px] px-1.5 py-0.5"
+              title="歌词延后 0.5 秒（有前奏的歌用这个）" @click="setLyricOffset(-0.5)">+0.5s</button>
+            <button v-if="state.lyricOffset" class="tc-btn-ghost text-[11px] px-1.5 py-0.5"
+              title="恢复默认" @click="resetLyricOffset">重置</button>
+          </div>
+
           <div ref="lyricBox" class="flex-1 min-h-0 overflow-y-auto px-2 md:px-6 py-4 text-center">
             <template v-if="state.lyrics.lines.length">
               <div v-for="(l, i) in state.lyrics.lines" :key="i"
@@ -192,6 +214,10 @@ const player = usePlayer();
 const state = player.state;
 const cur = computed(() => player.current.value);
 const { toggle, next, prev, seek, setVolume, cycleRepeat, jump, removeAt, clear, toggleExpand } = player;
+const { setLyricOffset } = player;
+
+/** 归零：直接把当前偏移反向补回去即可（setLyricOffset 是增量式） */
+function resetLyricOffset() { setLyricOffset(-(state.lyricOffset || 0)); }
 
 const showQueue = ref(false);
 const lyricBox = ref(null);
@@ -222,11 +248,16 @@ function toggleMute() {
 //   2) 歌词区的纵向滚动 —— 竖向位移不算切歌。
 // 因此判据是：起点不在 range 上、且横向位移明显大于纵向。
 
-const swipe = { x0: 0, y0: 0, t0: 0, active: false };
+const swipe = { x0: 0, y0: 0, t0: 0, active: false, locking: true };
 /** 触发阈值：太小的位移当成误触 */
 const SWIPE_MIN = 60;
 /** 横向必须比纵向明显更大，避免斜着划也算 */
 const SWIPE_RATIO = 1.5;
+
+/** 跟手位移（px）：拖动时实时跟手，松手后回弹或滑出 */
+const swipeShift = ref(0);
+/** 正在播放切歌动画时锁住，避免连续触发 */
+const swiping = ref(false);
 
 function onTouchStart(e) {
   const t = e.touches && e.touches[0];
@@ -235,28 +266,59 @@ function onTouchStart(e) {
   const tag = (t.target && t.target.tagName ? String(t.target.tagName) : '').toLowerCase();
   const type = t.target && t.target.type ? String(t.target.type).toLowerCase() : '';
   if (tag === 'input' || type === 'range') { swipe.active = false; return; }
+  if (swiping.value) { swipe.active = false; return; }
   swipe.active = true;
+  swipe.locking = true;      // 先判方向，确认是横向再开始跟手
   swipe.x0 = t.clientX;
   swipe.y0 = t.clientY;
   swipe.t0 = Date.now();
+  swipeShift.value = 0;
 }
 
-function onTouchEnd(e) {
+function onTouchMove(e) {
   if (!swipe.active) return;
+  const t = e.touches && e.touches[0];
+  if (!t) return;
+  const dx = t.clientX - swipe.x0;
+  const dy = t.clientY - swipe.y0;
+  // 方向锁：首次超过 8px 时判定，纵向占优就彻底放弃这次手势
+  if (swipe.locking) {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    if (Math.abs(dx) < Math.abs(dy)) { swipe.active = false; return; }
+    swipe.locking = false;
+  }
+  // 阻尼：越拖越沉，避免一划到底
+  swipeShift.value = dx * 0.55;
+}
+
+async function onTouchEnd(e) {
+  if (!swipe.active) { swipeShift.value = 0; return; }
   swipe.active = false;
   // 队列抽屉打开时不切歌，避免误触（此时用户大概率在操作列表）
-  if (showQueue.value) return;
+  if (showQueue.value) { swipeShift.value = 0; return; }
   const t = e.changedTouches && e.changedTouches[0];
-  if (!t) return;
+  if (!t) { swipeShift.value = 0; return; }
   const dx = t.clientX - swipe.x0;
   const dy = t.clientY - swipe.y0;
   const adx = Math.abs(dx);
   const ady = Math.abs(dy);
-  if (adx < SWIPE_MIN) return;               // 位移太小，当误触
-  if (adx < ady * SWIPE_RATIO) return;       // 更像竖向滚动，不切歌
-  // 左滑（dx<0）→ 下一首；右滑（dx>0）→ 上一首
-  if (dx < 0) next();
-  else prev();
+  if (adx < SWIPE_MIN || adx < ady * SWIPE_RATIO) {
+    swipeShift.value = 0;                    // 没到阈值，回弹
+    return;
+  }
+
+  // 确认切歌：先整屏滑出，再换曲，然后从另一侧滑入
+  const toNext = dx < 0;                     // 左滑下一首；右滑上一首
+  swiping.value = true;
+  const w = window.innerWidth || 400;
+  swipeShift.value = toNext ? -w : w;
+  await new Promise((r) => setTimeout(r, 180));
+  if (toNext) await next(); else await prev();
+  swipeShift.value = toNext ? w : -w;        // 瞬移到反侧（无动画）
+  await new Promise((r) => setTimeout(r, 20));
+  swipeShift.value = 0;                      // 滑回正中
+  await new Promise((r) => setTimeout(r, 200));
+  swiping.value = false;
 }
 
 /**

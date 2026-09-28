@@ -79,16 +79,18 @@
             :title="platformTitle(s, p)">{{ PLAT_LABEL[p] || p }}</span>
         </div>
 
-        <!-- 状态行：已加载 · 测试结果：正常（内联，刷新后保留） -->
+        <!--
+          状态行：单一口径。
+
+          此前这里同时挂了「自动健康度」和「测试结果」两个结论，
+          两者常常相反（手动刚测通过、自动却显示 0%），同一张卡片上打架 ——
+          就是用户说的「结果不统一」。现在只显示**一个**结论：
+          有手动测试结果就以它为准（用户刚点的，最权威），否则用自动健康度。
+        -->
         <div class="rounded-md px-2.5 py-2 text-[11px] leading-relaxed" :class="statusBoxClass(s)">
           <div class="flex items-center gap-1.5 flex-wrap">
-            <span class="font-medium">{{ statusText(s) }}</span>
-            <template v-if="s.test">
-              <span class="opacity-50">·</span>
-              <span>测试结果：</span>
-              <span class="font-medium" :class="testTextClass(s)">{{ testLabel(s) }}</span>
-              <span v-if="s.test.at" class="opacity-50 font-mono">{{ relTime(s.test.at) }}</span>
-            </template>
+            <span class="font-medium" :class="statusTextClass(s)">{{ statusText(s) }}</span>
+            <span v-if="statusAt(s)" class="opacity-50 font-mono">{{ relTime(statusAt(s)) }}</span>
           </div>
           <div v-if="s.loadState === 'failed'" class="mt-1 opacity-90 break-words">
             原因：{{ s.loadError || '未知原因' }}
@@ -96,8 +98,11 @@
           <div v-else-if="s.disabled" class="mt-1 opacity-80">
             不参与取链与下载，可随时启用
           </div>
-          <div v-else-if="s.test && !s.test.ok && s.test.error" class="mt-1 opacity-80 break-words">
-            {{ s.test.error }}
+          <div v-else-if="statusError(s)" class="mt-1 opacity-80 break-words">
+            {{ statusError(s) }}
+          </div>
+          <div v-else-if="autoDetail(s)" class="mt-1 opacity-60">
+            {{ autoDetail(s) }}
           </div>
         </div>
 
@@ -196,7 +201,64 @@ function statusBoxClass(s) {
 function statusText(s) {
   if (s.disabled) return '已停用';
   if (s.loadState === 'failed') return '加载失败';
-  return healthText(s);
+  return verdict(s).text;
+}
+
+/**
+ * 单一口径的状态结论 —— 解决「结果不统一」的关键。
+ *
+ * 此前状态行同时挂了「自动健康度」和「测试结果」两个结论。
+ * 二者统计来源不同、经常相反（手动刚测通过、自动却显示 0%），
+ * 同一张卡片上自相矛盾。现在只出一个结论：
+ *   - 有手动测试结果 → 以它为准（用户刚点的，最权威）；
+ *   - 否则 → 用自动健康度（后端累计的真实取链成功率）。
+ */
+function verdict(s) {
+  const t = s.test;
+  if (t) {
+    const ps = t.platforms || {};
+    const keys = Object.keys(ps);
+    const bad = keys.filter((k) => ps[k] === false).length;
+    const state = !t.ok ? 'bad' : (bad > 0 || t.partial) ? 'partial' : 'ok';
+    const text = !t.ok ? '不可用' : (state === 'partial' ? '部分可用' : '正常');
+    const plat = keys.length ? ` · ${keys.length - bad}/${keys.length} 平台` : '';
+    return { state, text: text + plat, at: t.at || 0, error: t.ok ? '' : (t.error || ''), manual: true };
+  }
+  return { state: healthState(s), text: healthText(s), at: 0, error: '', manual: false };
+}
+
+/** 结论文字配色（与盒子底色一致，避免同一行两种颜色） */
+function statusTextClass(s) {
+  if (s.disabled) return 'text-fg-subtle';
+  if (s.loadState === 'failed') return 'text-rose-300';
+  const st = verdict(s).state;
+  if (st === 'ok') return 'text-emerald-300';
+  if (st === 'partial') return 'text-amber-300';
+  if (st === 'bad' || st === 'failed') return 'text-rose-300';
+  return 'text-fg-muted';
+}
+
+/** 结论时间戳（仅手动测试有） */
+function statusAt(s) {
+  if (s.disabled || s.loadState === 'failed') return 0;
+  return verdict(s).at;
+}
+
+/** 失败原因（仅手动测试失败时给出） */
+function statusError(s) {
+  if (s.disabled || s.loadState === 'failed') return '';
+  return verdict(s).error;
+}
+
+/** 自动口径的补充明细：只在没有手动结论时展示原始计数，便于判断可信度 */
+function autoDetail(s) {
+  const v = verdict(s);
+  if (v.manual || s.disabled || s.loadState === 'failed') return '';
+  const h = s.healthDetail;
+  if (!h) return '';
+  const total = (h.success || 0) + (h.failure || 0);
+  if (!total) return '自动口径：还没取过链，点「测试」可立即探活';
+  return `自动口径：累计 ${h.success || 0}/${total} 次取链成功`;
 }
 
 /**
