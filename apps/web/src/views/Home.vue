@@ -33,6 +33,78 @@
       </button>
     </div>
 
+    <!-- ============ 歌单（跟随主流方案放在首页；搜索时让位给结果） ============ -->
+    <section v-if="!localKw && home.playlists.length" class="space-y-2">
+      <h3 class="tc-section-title">歌单</h3>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div v-for="pl in home.playlists" :key="pl.id"
+          class="group cursor-pointer" @click="playPlaylist(pl)">
+          <div class="relative tc-cover-art">
+            <img v-if="pl.cover" :src="`/cover/${pl.cover}`" class="w-full h-full object-cover" loading="lazy" />
+            <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
+              <Icon name="list" :size="28" />
+            </div>
+            <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
+              :title="`播放 ${pl.name}`">
+              <span class="w-10 h-10 rounded-full bg-accent text-fg-inverse flex items-center justify-center">
+                <Icon name="play" :size="17" />
+              </span>
+            </button>
+          </div>
+          <div class="mt-1.5 text-sm text-fg truncate">{{ pl.name }}</div>
+          <div class="text-[11px] text-fg-subtle tc-num">{{ pl.count }} 首</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 推荐：最近入库 ============ -->
+    <section v-if="!localKw && home.recent.length" class="space-y-2">
+      <h3 class="tc-section-title">最近入库</h3>
+      <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+        <div v-for="s in home.recent" :key="s.id" class="group cursor-pointer" @click="playHomeSong(s)">
+          <div class="relative tc-cover-art">
+            <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
+            <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
+              <Icon name="music" :size="22" />
+            </div>
+            <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
+              :title="`播放 ${s.title}`">
+              <span class="w-8 h-8 rounded-full bg-accent text-fg-inverse flex items-center justify-center">
+                <Icon name="play" :size="14" />
+              </span>
+            </button>
+          </div>
+          <div class="mt-1 text-[11px] text-fg truncate">{{ s.title }}</div>
+          <div class="text-[10px] text-fg-subtle truncate">{{ s.artist }}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 推荐：专辑 / 歌手分类 ============ -->
+    <section v-if="!localKw && home.albums.length" class="space-y-2">
+      <h3 class="tc-section-title">专辑</h3>
+      <div class="flex flex-wrap gap-2">
+        <button v-for="a in home.albums" :key="a.name"
+          class="tc-chip hover:bg-white/[0.09] transition-colors max-w-[220px]"
+          :title="`${a.name} · ${a.count} 首`" @click="filterBy('album', a.name)">
+          <span class="truncate">{{ a.name }}</span>
+          <span class="tc-num opacity-60 ml-1">{{ a.count }}</span>
+        </button>
+      </div>
+    </section>
+
+    <section v-if="!localKw && home.artists.length" class="space-y-2">
+      <h3 class="tc-section-title">歌手</h3>
+      <div class="flex flex-wrap gap-2">
+        <button v-for="a in home.artists" :key="a.name"
+          class="tc-chip hover:bg-white/[0.09] transition-colors max-w-[180px]"
+          :title="`${a.name} · ${a.count} 首`" @click="filterBy('artist', a.name)">
+          <span class="truncate">{{ a.name }}</span>
+          <span class="tc-num opacity-60 ml-1">{{ a.count }}</span>
+        </button>
+      </div>
+    </section>
+
     <!-- ============ 状态区 ============ -->
     <div v-if="loading && !songs.length" class="grid gap-3"
       :class="view === 'list' ? '' : 'grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'">
@@ -126,6 +198,25 @@ const total = ref(0);
 const loading = ref(false);
 const message = ref(null);
 
+/** 首页聚合数据：歌单 + 推荐分区 + 统计 */
+const home = ref({ playlists: [], recent: [], albums: [], artists: [], stats: null });
+const homeLoading = ref(false);
+
+async function loadHome() {
+  homeLoading.value = true;
+  try {
+    const r = await api.home();
+    if (r) home.value = {
+      playlists: r.playlists || [],
+      recent: r.recent || [],
+      albums: r.albums || [],
+      artists: r.artists || [],
+      stats: r.stats || null,
+    };
+  } catch { /* 首页增量数据失败不影响曲库主体，静默 */ }
+  finally { homeLoading.value = false; }
+}
+
 /** 显示方式：列表 / 小图 / 中图 */
 const VIEWS = [
   { id: 'list',    label: '列表', icon: 'list' },
@@ -172,6 +263,36 @@ function toQueue(list) {
   }));
 }
 
+/** 首页歌单：整张播放 */
+async function playPlaylist(pl) {
+  try {
+    const r = await api.playlistPlay(pl.id);
+    if (r && r.ok) {
+      // 服务端已持有队列，前端刷新一次即可对齐
+      await player.refresh();
+    } else {
+      message.value = { ok: false, text: '播放失败：' + ((r && r.error) || '未知错误') };
+      setTimeout(() => { message.value = null; }, 2000);
+    }
+  } catch (e) {
+    message.value = { ok: false, text: '播放失败：' + e };
+    setTimeout(() => { message.value = null; }, 2000);
+  }
+}
+
+/** 首页推荐卡片：单曲直接播放（放进当前可见列表里定位） */
+async function playHomeSong(s) {
+  localKw.value = '';
+  const list = songs.value.length ? songs.value : home.value.recent;
+  const i = list.findIndex((x) => x.id === s.id);
+  await player.playList(toQueue(list), Math.max(0, i));
+}
+
+/** 点分类推荐 → 落到本地检索框 */
+function filterBy(kind, name) {
+  localKw.value = name;
+}
+
 async function playSong(s) {
   const i = filtered.value.findIndex(x => x.id === s.id);
   await player.playList(toQueue(filtered.value), Math.max(0, i));
@@ -183,5 +304,5 @@ async function appendSong(s) {
   setTimeout(() => { message.value = null; }, 1800);
 }
 
-onMounted(() => { load(); });
+onMounted(() => { load(); loadHome(); });
 </script>

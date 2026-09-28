@@ -1,41 +1,59 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!--
-    ToneCore 图标 · 圆角方底 · 音符 + 声波
-    亮色版：天蓝渐变底 #2E9BE8 → #4FC3F7 / 音符纯白 / 声波亮琥珀 #FFC13B
+    ToneCore 图标 · 圆形 · 石墨灰底 + 青蓝声波
 
-    配色口径（亮色化）：
-      旧版 #185FA5 是深靛蓝，在深色列表背景上发闷、辨识度低。
-      新版改为高明度天蓝纵向渐变，主色亮度提升约 2 倍，
-      在浅底与深底上都有足够对比。声波由 #EF9F27 提亮到 #FFC13B。
+    设计口径（重做）：
+      旧版是「圆角方块 + 天蓝渐变 + 白色音符」，在同类音乐容器里辨识度低，
+      方形在 Unraid 面板与浏览器标签页里也显得笨重。
 
-    构图口径：白色音符 + 琥珀声波的联合包围盒必须居中于画布。
+      新版改为**正圆**：
+        - 底：石墨灰径向渐变（#565D66 → #22262C），有体积感，
+          也不与其它彩色品牌撞色；
+        - 顶部一道极淡高光，制造抛光质感；
+        - 中心音符用主色青蓝（#4FC3F7→#35A9E8），与灰底形成冷暖对比；
+        - 左右各一道声波弧（#2E9BE8），呼应「音源 / 声波」语义。
+
+      构图：音符与声波作为整体居中于圆心 (512, 512)。
   -->
 
   <defs>
-    <!-- 纵向天蓝渐变：上浅下深，避免纯平色显得呆板 -->
-    <linearGradient id="tcBase" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#4FC3F7"/>
-      <stop offset="55%"  stop-color="#2E9BE8"/>
-      <stop offset="100%" stop-color="#1E7FD0"/>
+    <radialGradient id="tcBase" cx="35%" cy="28%" r="85%">
+      <stop offset="0%"   stop-color="#565D66"/>
+      <stop offset="45%"  stop-color="#3C424A"/>
+      <stop offset="100%" stop-color="#22262C"/>
+    </radialGradient>
+
+    <linearGradient id="tcGloss" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="55%"  stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="tcNote" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#7FD8FB"/>
+      <stop offset="100%" stop-color="#35A9E8"/>
     </linearGradient>
   </defs>
 
-  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#tcBase)"/>
+  <circle cx="512" cy="512" r="512" fill="url(#tcBase)"/>
+  <circle cx="512" cy="512" r="512" fill="url(#tcGloss)"/>
+  <circle cx="512" cy="512" r="502" fill="none"
+          stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="6"/>
 
-  <!-- 声波：居中对齐音符的垂直重心（中心 512），并贴近音符两侧 -->
-  <path d="M 288 442 A 152 152 0 0 0 288 582"
-        fill="none" stroke="#FFC13B" stroke-width="56" stroke-linecap="round"/>
-  <path d="M 736 442 A 152 152 0 0 1 736 582"
-        fill="none" stroke="#FFC13B" stroke-width="56" stroke-linecap="round"/>
+  <!-- 声波：左右各一道 -->
+  <path d="M 300 430 A 158 158 0 0 0 300 594"
+        fill="none" stroke="#2E9BE8" stroke-width="54" stroke-linecap="round" opacity="0.85"/>
+  <path d="M 724 430 A 158 158 0 0 1 724 594"
+        fill="none" stroke="#2E9BE8" stroke-width="54" stroke-linecap="round" opacity="0.85"/>
 
-  <!-- 音符 -->
-  <g transform="translate(512 512) scale(1.06) translate(-512 -512) translate(-37 0)">
-    <ellipse cx="470" cy="640" rx="110" ry="82"
-             fill="#FFFFFF" transform="rotate(-20 470 640)"/>
-    <rect x="540" y="320" width="82" height="340" fill="#FFFFFF"/>
-    <path d="M 622 320
-             C 712 334 752 400 736 478
-             C 724 428 686 392 622 374 Z"
-          fill="#FFFFFF"/>
+  <!-- 音符：符头 + 符干 + 符尾 -->
+  <g transform="translate(512 512) scale(1.04) translate(-512 -512) translate(-34 0)">
+    <ellipse cx="470" cy="648" rx="112" ry="84"
+             fill="url(#tcNote)" transform="rotate(-20 470 648)"/>
+    <rect x="542" y="318" width="84" height="342" rx="8" fill="url(#tcNote)"/>
+    <path d="M 626 318
+             C 716 332 758 402 740 480
+             C 728 428 690 392 626 372 Z"
+          fill="url(#tcNote)"/>
   </g>
 </svg>

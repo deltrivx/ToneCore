@@ -1,5 +1,38 @@
 <template>
   <div class="space-y-4">
+    <!-- ============ 入库格式选择 ============ -->
+    <div v-if="pickQuality.open"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4"
+      @click.self="closeQuality">
+      <div class="tc-card w-full max-w-[380px] p-4 space-y-3">
+        <div class="text-sm font-medium text-fg">选择入库音质</div>
+        <div class="text-[11px] text-fg-subtle break-words">
+          目标：{{ pickQuality.title }}
+        </div>
+        <div class="space-y-1.5">
+          <label v-for="q in QUALITIES" :key="q.id"
+            class="flex items-center gap-3 rounded-md border px-3 py-2.5 cursor-pointer transition-colors"
+            :class="pickQuality.quality === q.id
+              ? 'border-accent/60 bg-accent-weak'
+              : 'border-line hover:bg-white/[0.04]'">
+            <input type="radio" name="tc-quality" :value="q.id"
+              v-model="pickQuality.quality" class="accent-accent" />
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm text-fg">{{ q.label }}</span>
+              <span class="block text-[11px] text-fg-subtle">{{ q.hint }}</span>
+            </span>
+          </label>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button class="tc-btn-primary flex-1" @click="confirmQuality">开始入库</button>
+          <button class="tc-btn" @click="closeQuality">取消</button>
+        </div>
+        <div class="text-[10px] text-fg-subtle">
+          入库 = 按所选音质下载落盘并刮削标签 / 封面 / 歌词；试听不落盘。
+        </div>
+      </div>
+    </div>
+
     <!-- 检索维度：歌曲 / 歌手 / 专辑 -->
     <div class="flex items-center gap-2 flex-wrap">
       <div class="inline-flex rounded-md border border-line overflow-hidden bg-white/[0.02]">
@@ -32,7 +65,7 @@
       <!-- 汇总操作：一次把全部结果存进本地曲库 -->
       <div class="flex items-center gap-2 flex-wrap">
         <span class="text-xs text-fg-muted">共 <b class="tc-num text-accent">{{ total }}</b> 条结果</span>
-        <button class="tc-btn text-xs" :disabled="busy" @click="saveAll">
+        <button class="tc-btn text-xs" :disabled="busy" @click="askQuality('全部结果', (q) => saveAll(q))">
           <Icon name="download" :size="14" />
           <span>{{ busy === 'all' ? '入库中…' : '全部入库' }}</span>
         </button>
@@ -43,7 +76,8 @@
         <div class="flex items-center gap-2">
           <span class="tc-chip">{{ PLAT_LABEL[plat] || String(plat).toUpperCase() }}</span>
           <span class="text-xs tc-num text-fg-subtle">{{ list.length }} 首</span>
-          <button class="tc-btn-ghost text-[11px] ml-auto" :disabled="busy" @click="savePlatform(plat, list)">
+          <button class="tc-btn-ghost text-[11px] ml-auto" :disabled="busy"
+            @click="askQuality(`${PLAT_LABEL[plat] || plat} 全部`, (q) => savePlatform(plat, list, q))">
             该平台全部入库
           </button>
         </div>
@@ -68,7 +102,7 @@
               <Icon name="plus" :size="14" />
             </button>
             <button class="tc-btn text-[11px] px-2 py-1 shrink-0" :disabled="busy"
-              title="下载到本地曲库" @click="saveOne(s)">
+              title="下载到本地曲库" @click="askQuality(s.title, (q) => saveOne(s, q))">
               <Icon v-if="busy === key(plat, s)" name="clock" :size="13" />
               <Icon v-else name="download" :size="13" />
               <span>{{ busy === key(plat, s) ? '…' : '入库' }}</span>
@@ -159,30 +193,65 @@ async function add(song) {
   message.value = { ok: true, text: `已添加到队列：${song.title}` };
 }
 
-/** 单曲入库：/api/play 会取链并落盘到本地曲库 */
-async function saveOne(s) {
+/**
+ * 入库音质选项。
+ *
+ * ⚠️ 值必须与服务端 QUALITY_WHITELIST 一致（master/flac24bit/flac/320k/128k），
+ * 否则 normalizeQuality 认不出来，会静默回落成全局默认音质 ——
+ * 表现为「选了格式但没生效」。
+ */
+const QUALITIES = [
+  { id: 'flac',      label: '无损 FLAC', hint: '推荐 · 体积较大' },
+  { id: 'flac24bit', label: '母带 24bit', hint: 'Hi-Res · 体积最大' },
+  { id: '320k',      label: '高品质 320k', hint: '体积适中' },
+  { id: '128k',      label: '标准 128k',  hint: '体积最小' },
+];
+
+/** 格式选择弹窗：待入库的目标 + 选定音质 */
+const pickQuality = ref({ open: false, quality: 'flac', title: '', run: null });
+
+/**
+ * 入库前先让用户选格式。
+ * 播放试听（play）不受影响 —— 试听走取链，只有「入库」才落盘。
+ */
+function askQuality(title, run) {
+  pickQuality.value = { open: true, quality: 'flac', title, run };
+}
+
+function closeQuality() {
+  pickQuality.value = { ...pickQuality.value, open: false, run: null };
+}
+
+async function confirmQuality() {
+  const { quality, run } = pickQuality.value;
+  closeQuality();
+  if (typeof run === 'function') await run(quality);
+}
+
+/** 单曲入库：/api/play 会取链并按指定音质落盘到本地曲库 */
+async function saveOne(s, quality) {
   const k = 'one:' + (s.id || s.title);
   busy.value = k; message.value = null;
   try {
-    const r = await api.play(s.title, s.artist);
+    const r = await api.play(s.title, s.artist, quality);
     message.value = r && r.ok
-      ? { ok: true, text: `已入库：${s.title}` }
+      ? { ok: true, text: `已入库（${quality}）：${s.title}` }
       : { ok: false, text: `入库失败：${(r && r.error) || '取链失败'}` };
   } catch (e) {
     message.value = { ok: false, text: '入库失败：' + e };
   } finally { busy.value = null; }
 }
 
-async function savePlatform(plat, list) {
+async function savePlatform(plat, list, quality) {
   busy.value = 'plat:' + plat;
-  await saveBatch(list);
+  await saveBatch(list, quality);
   busy.value = null;
 }
 
-async function saveAll() {
+async function saveAll(quality) {
   busy.value = 'all';
   const all = Object.values(results.value).flat();
-  await saveBatch(all);
+  await saveBatch(all, quality);
   busy.value = null;
 }
 
@@ -190,19 +259,19 @@ async function saveAll() {
  * 批量入库：逐条串行（服务端下载有并发与间隔限流，这里避免把自己打爆），
  * 实时汇报进度与成功数。
  */
-async function saveBatch(list) {
+async function saveBatch(list, quality) {
   let ok = 0, fail = 0;
-  message.value = { ok: true, text: `开始入库 0/${list.length}…` };
+  message.value = { ok: true, text: `开始入库 0/${list.length}（${quality}）…` };
   for (let i = 0; i < list.length; i++) {
     const s = list[i];
     try {
-      const r = await api.play(s.title, s.artist);
+      const r = await api.play(s.title, s.artist, quality);
       if (r && r.ok) ok++; else fail++;
     } catch { fail++; }
     message.value = { ok: true, text: `入库进度 ${i + 1}/${list.length}（成功 ${ok}，失败 ${fail}）` };
   }
   message.value = fail
-    ? { ok: false, text: `入库完成：成功 ${ok}，失败 ${fail}（部分曲目上游无版权）` }
-    : { ok: true, text: `入库完成：成功 ${ok} 首，可到「主页」查看` };
+    ? { ok: false, text: `入库完成（${quality}）：成功 ${ok}，失败 ${fail}（部分曲目上游无版权）` }
+    : { ok: true, text: `入库完成（${quality}）：成功 ${ok} 首，可到「主页」查看` };
 }
 </script>

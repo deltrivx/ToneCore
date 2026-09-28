@@ -250,6 +250,17 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     return { ok: true, ...d.player.setVolume(Number(b.volume) || 0) };
   });
 
+  /**
+   * 上报播放位置（毫秒）。
+   *
+   * 这是「划掉页面再回来接着听」的另一半：队列恢复了但位置不恢复，
+   * 续播还是从头开始 —— 看起来就像进度压根没保存。
+   */
+  app.post('/api/player/position', async (req) => {
+    const b = (req.body || {}) as any;
+    return { ok: true, ...d.player.setPosition(Number(b.positionMs) || 0) };
+  });
+
   /** 从队列移除一项（按 uid） */
   app.post('/api/player/remove', async (req) => {
     const b = (req.body || {}) as any;
@@ -322,6 +333,40 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
 
   // ---------- 歌单（命名的可持久化队列） ----------
   // 主页展示用；播放即把整张歌单的本地曲目灌入服务端队列并按序播放。
+  /**
+   * 首页一次拿齐：推荐分区 + 歌单 + 统计。
+   *
+   * 为什么做成聚合接口：首页原本要分别打 library / playlists / stats 三个请求，
+   * 首屏三跳延迟串行叠加，且各自 loading 容易让板块错位跳动。
+   */
+  app.get('/api/home', async () => {
+    const all = d.lib.listAll(2000, 0);
+    const byAlbum = new Map<string, any[]>();
+    const byArtist = new Map<string, any[]>();
+    for (const s of all) {
+      const ak = String(s.album || '未知专辑');
+      if (!byAlbum.has(ak)) byAlbum.set(ak, []);
+      byAlbum.get(ak)!.push(s);
+      const rk = String(s.artist || '未知歌手');
+      if (!byArtist.has(rk)) byArtist.set(rk, []);
+      byArtist.get(rk)!.push(s);
+    }
+    const pick = (m: Map<string, any[]>, n: number) =>
+      [...m.entries()]
+        .sort((a, b) => b[1].length - a[1].length)
+        .slice(0, n)
+        .map(([name, songs]) => ({ name, count: songs.length, cover: songs.find((x) => x.cover)?.cover || null }));
+
+    return {
+      stats: d.lib.stats(),
+      playlists: d.lib.listPlaylists(),
+      // 「最近入库」按 id 倒序（id 即入库顺序）
+      recent: all.slice().sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 12),
+      albums: pick(byAlbum, 12),
+      artists: pick(byArtist, 12),
+    };
+  });
+
   app.get('/api/playlists', async () => ({ playlists: d.lib.listPlaylists() }));
 
   app.post('/api/playlists', async (req) => {

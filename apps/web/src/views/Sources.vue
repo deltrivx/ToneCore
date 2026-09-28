@@ -168,9 +168,15 @@ function cardClass(s) {
 
 function statusDot(s) {
   if (s.disabled || s.loadState === 'failed') return 'bg-fg-subtle';
+  // 有手动测试结果时优先用它（用户刚点的，最权威）
   const t = s.test ? s.test.ok : undefined;
   if (t === true) return 'bg-emerald-400';
   if (t === false) return 'bg-rose-400';
+  // 否则用自动健康度
+  const st = healthState(s);
+  if (st === 'ok') return 'bg-emerald-400';
+  if (st === 'partial') return 'bg-amber-400';
+  if (st === 'bad') return 'bg-rose-400';
   return 'bg-fg-subtle';
 }
 
@@ -180,13 +186,57 @@ function statusBoxClass(s) {
   const t = s.test ? s.test.ok : undefined;
   if (t === true) return 'bg-emerald-500/10 text-emerald-300';
   if (t === false) return 'bg-rose-500/10 text-rose-300';
+  const st = healthState(s);
+  if (st === 'ok') return 'bg-emerald-500/10 text-emerald-300';
+  if (st === 'partial') return 'bg-amber-500/10 text-amber-300';
+  if (st === 'bad') return 'bg-rose-500/10 text-rose-300';
   return 'bg-surface-overlay text-fg-muted';
 }
 
 function statusText(s) {
   if (s.disabled) return '已停用';
   if (s.loadState === 'failed') return '加载失败';
-  return '已加载';
+  return healthText(s);
+}
+
+/**
+ * 自动健康度（不点「测试」也显示）。
+ *
+ * 后端 healthSnapshot 一直在累计每次真实取链的成功/失败，
+ * 之前界面只在 s.test 存在时才显示状态，于是看起来「不手动测就没有状态」。
+ * 这里改成：默认用健康度判定，手动测试的结果作为补充叠加。
+ */
+function healthState(s) {
+  const h = s.healthDetail;
+  if (!h) return 'unknown';
+  if (h.loadState === 'failed') return 'failed';
+  // ⚠️ healthDetail 没有 total 字段，只有 success / failure / consecutiveFailures
+  const total = (h.success || 0) + (h.failure || 0);
+  if (!total) return 'idle';            // 已加载但还没取过链
+  if (h.success > 0 && !h.consecutiveFailures) return 'ok';
+  if (h.success > 0) return 'partial';
+  return 'bad';
+}
+
+function healthText(s) {
+  const h = s.healthDetail;
+  const st = healthState(s);
+  if (st === 'unknown' || st === 'idle') return '已加载 · 待调用';
+  const total = (h.success || 0) + (h.failure || 0);
+  const rate = Math.round(((h.success || 0) / total) * 100);
+  const tail = `${h.success || 0}/${total} 成功 · ${rate}%`;
+  if (st === 'ok') return `正常 · ${tail}`;
+  if (st === 'partial') return `部分可用 · ${tail}`;
+  if (st === 'failed') return '加载失败';
+  return `不可用 · ${tail}`;
+}
+
+function healthClass(s) {
+  const st = healthState(s);
+  if (st === 'ok') return 'text-emerald-300';
+  if (st === 'partial') return 'text-amber-300';
+  if (st === 'failed' || st === 'bad') return 'text-rose-300';
+  return 'text-fg-muted';
 }
 
 /** 测试结论文案：正常 / 部分可用 / 不可用 */

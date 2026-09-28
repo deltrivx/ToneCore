@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { logger } from '../../logger.js';
 import { loadConfig } from '../../config.js';
 import type { SourceEngine, Song } from '../source/index.js';
@@ -54,6 +56,14 @@ export interface PlayerState {
   /** 当前曲目实际音质（取链后回填） */
   quality: string | null;
   volume: number;
+  /**
+   * 当前曲目的播放位置（毫秒）。
+   *
+   * ⚠️ 这个字段是「划掉页面再回来能接着听」的关键：队列可以只恢复歌单，
+   * 但位置不恢复的话续播永远从头开始，看起来就像进度根本没保存。
+   * 由前端上报（/api/player/position），随队列一起落盘。
+   */
+  positionMs: number;
   /** 已播过的历史（用于「上一首」在随机模式下回退） */
   history: number[];
   updatedAt: number;
@@ -72,6 +82,7 @@ export class PlayerService {
     playUrl: null,
     quality: null,
     volume: 80,
+    positionMs: 0,
     history: [],
     updatedAt: Date.now(),
   };
@@ -79,7 +90,71 @@ export class PlayerService {
   constructor(
     private engine: SourceEngine,
     private lib: Library,
-  ) {}
+  ) {
+    this.restore();
+  }
+
+  // ---------- 持久化 ----------
+  //
+  // 队列此前是纯内存态：服务端一重启（或容器重建）队列就没了，
+  // 前端 init() 拿到空队列 → 界面显示「未有曲目播放」。
+  // 播放位置同理：不落盘，续播就只能从头开始。
+
+  /** 状态文件路径（与曲库同盘，重建容器不丢） */
+  private get stateFile(): string {
+    const dir = process.env.DATA_DIR || '/data';
+    return path.join(dir, 'player-state.json');
+  }
+
+  private persist(): void {
+    try {
+      fs.mkdirSync(path.dirname(this.stateFile), { recursive: true });
+      // 只存可序列化的部分；playUrl 每次启动重新解析（上游直链会过期）
+      const data = {
+        queue: this.state.queue,
+        index: this.state.index,
+        repeat: this.state.repeat,
+        volume: this.state.volume,
+        positionMs: this.state.positionMs,
+        updatedAt: this.state.updatedAt,
+      };
+      fs.writeFileSync(this.stateFile, JSON.stringify(data), { mode: 0o600 });
+    } catch (e) {
+      // 落盘失败不致命：最多是刷新后回到空队列，不能因此打断播放
+      logger.debug({ err: String(e).slice(0, 200) }, '播放状态落盘失败（已忽略）');
+    }
+  }
+
+  private restore(): void {
+    try {
+      if (!fs.existsSync(this.stateFile)) return;
+      const raw = JSON.parse(fs.readFileSync(this.stateFile, 'utf-8'));
+      if (!Array.isArray(raw.queue)) return;
+      this.state.queue = raw.queue;
+      this.state.index = typeof raw.index === 'number' ? raw.index : -1;
+      this.state.repeat = raw.repeat || 'list';
+      this.state.volume = typeof raw.volume === 'number' ? raw.volume : 80;
+      this.state.positionMs = Number(raw.positionMs) || 0;
+      // ⚠️ 刻意不恢复 playing：浏览器不允许无交互自动播放，
+      // 前端 init() 同样会把 playing 置 false
+      this.state.playing = false;
+      logger.info(
+        { songs: this.state.queue.length, index: this.state.index, positionMs: this.state.positionMs },
+        '播放状态已恢复',
+      );
+      // 恢复后重新解析当前曲目的可播地址（playUrl 不入库，直链会过期）
+      if (this.state.index >= 0) void this.resolveCurrent();
+    } catch (e) {
+      logger.debug({ err: String(e).slice(0, 200) }, '播放状态恢复失败（已忽略）');
+    }
+  }
+
+  /** 更新播放位置（前端上报） */
+  setPosition(ms: number): PlayerState {
+    this.state.positionMs = Math.max(0, Math.round(ms) || 0);
+    this.touch();
+    return this.snapshot();
+  }
 
   snapshot(): PlayerState {
     return { ...this.state, queue: this.state.queue.map((q) => ({ ...q })) };
@@ -287,7 +362,14 @@ export class PlayerService {
     }
   }
 
+  /**
+   * 状态变更后统一入口：更新时间戳 + 落盘。
+   *
+   * ⚠️ 落盘必须挂在这里而不是散在各处 —— 否则新增一个改状态的入口
+   * （历史上就漏过）就会悄悄退化回「内存态」，表现为队列莫名消失。
+   */
   private touch() {
     this.state.updatedAt = Date.now();
+    this.persist();
   }
 }

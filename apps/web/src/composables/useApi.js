@@ -59,6 +59,8 @@ export const api = {
   sources:     () => req('/api/sources'),
   sourcesAll:  () => req('/api/sources/all'),
   sourcesHealth: () => req('/api/sources/health'),
+  home:          () => req('/api/home'),
+  libraryStats:  () => req('/api/library/stats'),
   sourceToggle: (file, enabled) => req('/api/sources/toggle', { method: 'POST', body: { file, enabled } }),
   sourceDelete: (file) => req('/api/sources/delete', { method: 'POST', body: { file } }),
   sourceUpload: (filename, content) => req('/api/sources/upload', { method: 'POST', body: { filename, content } }),
@@ -67,7 +69,8 @@ export const api = {
 
   search:      (kw, type = 'song') =>
     req(`/api/search?keyword=${encodeURIComponent(kw)}&type=${encodeURIComponent(type)}`),
-  play:        (kw, artist) => req('/api/play', { method: 'POST', body: { keyword: kw, artist } }),
+  // quality 省略时服务端用全局默认音质；入库时由用户选择传入
+  play:        (kw, artist, quality) => req('/api/play', { method: 'POST', body: { keyword: kw, artist, quality } }),
   downloads:   () => req('/api/downloads'),
   platforms:   () => req('/api/platforms'),
 
@@ -81,6 +84,7 @@ export const api = {
   playerRepeat: (mode) => req('/api/player/repeat', { method: 'POST', body: { mode } }),
   playerPlaying:(playing) => req('/api/player/playing', { method: 'POST', body: { playing } }),
   playerVolume: (volume) => req('/api/player/volume', { method: 'POST', body: { volume } }),
+  playerPosition:(positionMs) => req('/api/player/position', { method: 'POST', body: { positionMs } }),
   playerRemove: (uid) => req('/api/player/remove', { method: 'POST', body: { uid } }),
   playerClear:  () => req('/api/player/clear', { method: 'POST' }),
 

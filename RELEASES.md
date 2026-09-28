@@ -5,7 +5,7 @@
 本页是 **ToneCore 的版本索引**。GitHub Releases 侧栏按发布时间排序，本页按语义化版本号排序，
 避免后补的旧版本让版本顺序看起来错乱。
 
-**当前稳定版：** [v0.18.0](https://github.com/deltrivx/tonecore/releases/tag/v0.18.0)
+**当前稳定版：** [v0.19.0](https://github.com/deltrivx/tonecore/releases/tag/v0.19.0)
 
 > 本文件由 `scripts/gen_releases.py` 从 `CHANGELOG.md` 生成，修改请改 CHANGELOG 后重新生成。
 
@@ -13,6 +13,7 @@
 
 | Version | 日期 | 更新摘要 | 发布说明 |
 |---|---|---|---|
+| [v0.19.0](https://github.com/deltrivx/tonecore/releases/tag/v0.19.0) | 2026-09-28 | 图标重做为圆形灰底；首页加歌单与推荐；音源状态默认显示；入库可选音质；修复续播不还原进度 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.19.0.md) |
 | [v0.18.0](https://github.com/deltrivx/tonecore/releases/tag/v0.18.0) | 2026-09-28 | 彻底移除小爱音箱功能；播放改为点底栏直达全屏，浮窗面板废弃 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.18.0.md) |
 | [v0.17.0](https://github.com/deltrivx/tonecore/releases/tag/v0.17.0) | 2026-09-28 | 播放页重构为 QQ 音乐大屏风格；修复封面丢失与小米二次验证流程错误 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.17.0.md) |
 | [v0.16.0](https://github.com/deltrivx/tonecore/releases/tag/v0.16.0) | 2026-09-28 | 修复验证码校验报「登录验证失败」，以及刷新后续播卡在缓冲中。 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.16.0.md) |
@@ -50,5 +51,5 @@
 
 ```bash
 docker pull ghcr.io/deltrivx/tonecore:latest   # 最新稳定版
-docker pull ghcr.io/deltrivx/tonecore:0.18.0    # 锁定版本
+docker pull ghcr.io/deltrivx/tonecore:0.19.0    # 锁定版本
 ```

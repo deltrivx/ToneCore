@@ -160,10 +160,21 @@ function scheduleProgressSave() {
   saveProgressNow();
 }
 
-/** 立即落一次（切歌 / 暂停 / 页面隐藏时调，避免丢最后几秒） */
+/**
+ * 立即落一次（切歌 / 暂停 / 页面隐藏时调，避免丢最后几秒）。
+ *
+ * ⚠️ 两处都要写，缺一不可：
+ *   1) /api/player/position —— 与队列一起落盘，是「刷新后接着听」的真正来源；
+ *   2) /api/v1/progress —— SongLoft 兼容的进度表（按曲目记忆，跨设备续播）。
+ * 历史上只写了 2) 而前端从不读取它，于是进度「存了但看不见」。
+ */
 export function saveProgressNow() {
   const c = state.queue[state.index];
   if (!c) return;
+  const posMs = Math.round((state.currentTime || 0) * 1000);
+  try {
+    api.playerPosition(posMs);
+  } catch { /* 进度丢失不致命，静默 */ }
   const key = c.filePath || c.songId || c.uid;
   if (!key) return;
   try {
@@ -171,7 +182,7 @@ export function saveProgressNow() {
       songKey: String(key),
       songId: c.songId ? Number(c.songId) : null,
       title: c.title, artist: c.artist, album: c.album,
-      positionMs: Math.round((state.currentTime || 0) * 1000),
+      positionMs: posMs,
       durationMs: Math.round((state.duration || 0) * 1000),
     });
   } catch { /* 进度丢失不致命，静默 */ }
@@ -321,7 +332,27 @@ export function usePlayer() {
         // 刻意恢复为「暂停」：浏览器不允许无交互自动播放
         state.playing = false;
         state.playUrl = r.playUrl ?? null;
+        // ⚠️ 恢复播放位置：队列回来了但位置不回来，续播就永远从头开始，
+        // 看起来和「进度没保存」一模一样。
+        const resumeMs = Number(r.positionMs) || 0;
+        state.currentTime = resumeMs / 1000;
         if (state.queue.length) loadLyrics();
+        // 元数据加载出来后再把 audio 元素定位到续播点
+        const a = ensureAudio();
+        if (a && resumeMs > 0 && state.playUrl) {
+          if (!a.src) a.src = state.playUrl;
+          const apply = () => {
+            try {
+              if (Number.isFinite(a.duration) && resumeMs / 1000 < a.duration - 1) {
+                a.currentTime = resumeMs / 1000;
+                state.currentTime = a.currentTime;
+                syncLyricIndex();
+              }
+            } catch { /* 还没加载完，忽略 */ }
+          };
+          a.addEventListener('loadedmetadata', apply, { once: true });
+          apply();
+        }
       }
     } catch { /* 首次启动服务端可能还没就绪 */ }
   }
