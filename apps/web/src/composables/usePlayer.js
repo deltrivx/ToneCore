@@ -40,12 +40,6 @@ const state = reactive({
   error: null,
   /** 全屏播放页是否展开 */
   expanded: false,
-  /**
-   * 底部「正在播放」上浮面板是否展开。
-   * 与 expanded（全屏页）是两件事：这里是点底部播放条弹出的浮层，
-   * 点空白处或收纳按钮都会收起。
-   */
-  sheetOpen: false,
   /** 歌词 */
   lyrics: { lines: [], source: 'none' },
   lyricIndex: -1,
@@ -333,11 +327,9 @@ export function usePlayer() {
   }
 
   function toggleExpand() { state.expanded = !state.expanded; }
-
-  /** 底部播放条 → 上浮「正在播放」面板 */
-  function openSheet() { state.sheetOpen = true; }
-  function closeSheet() { state.sheetOpen = false; }
-  function toggleSheet() { state.sheetOpen = !state.sheetOpen; }
+  /** 打开全屏播放页（底部播放条的唯一展开入口） */
+  function expand() { state.expanded = true; }
+  function collapse() { state.expanded = false; }
 
   /** 重新拉取服务端状态（服务端队列被其他接口改写后，用于对齐前端） */
   async function refresh() {
@@ -351,8 +343,7 @@ export function usePlayer() {
     state,
     saveProgressNow, current, coverUrl, hasNext, REPEAT_META,
     init, playList, append, play, pause, toggle, next, prev, jump, seek,
-    setVolume, cycleRepeat, removeAt, clear, toggleExpand, refresh,
-    openSheet, closeSheet, toggleSheet,
+    setVolume, cycleRepeat, removeAt, clear, toggleExpand, expand, collapse, refresh,
   };
 }
 

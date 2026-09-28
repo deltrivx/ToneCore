@@ -87,8 +87,7 @@
       </div>
     </nav>
 
-    <!-- 上浮「正在播放」面板 / 全屏播放页 -->
-    <NowPlayingSheet v-if="player.state.sheetOpen" />
+    <!-- 全屏播放页：由底部播放条点击展开 -->
     <FullPlayer v-if="player.state.expanded" />
   </div>
 </template>
@@ -104,7 +103,6 @@ import Sources from './views/Sources.vue';
 import Settings from './views/Settings.vue';
 import MiniPlayer from './components/MiniPlayer.vue';
 import FullPlayer from './components/FullPlayer.vue';
-import NowPlayingSheet from './components/NowPlayingSheet.vue';
 import Login from './views/Login.vue';
 
 /**

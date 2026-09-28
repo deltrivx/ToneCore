@@ -8,7 +8,6 @@ import type { SourceEngine } from '../services/source/index.js';
 import type { Downloader } from '../services/download/index.js';
 import type { Library } from '../services/library/index.js';
 import type { Scraper } from '../services/scraper/index.js';
-import type { SpeakerService } from '../services/speaker/index.js';
 import type { Orchestrator } from '../services/orchestrator.js';
 import type { PlayerService, QueueItem, RepeatMode } from '../services/player/index.js';
 import type { LyricsService } from '../services/player/lyrics.js';
@@ -23,11 +22,10 @@ export interface Deps {
   /** 账号认证与令牌（SongLoft 兼容层依赖） */
   auth: AuthService;
   scraper: Scraper;
-  speaker: SpeakerService;
   orchestrator: Orchestrator;
   player: PlayerService;
   lyrics: LyricsService;
-  /** 对外访问地址（推给音箱用） */
+  /** 对外访问地址（拼绝对直链用） */
   publicBase: () => string;
 }
 
@@ -71,8 +69,6 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     sources: d.engine.sourceCount,
     library: d.lib.count(),
     queue: d.downloader.status(),
-    speaker: d.speaker.status.enabled,
-    devices: d.speaker.status.deviceCount,
   }));
 
   // ---------- 配置 ----------
@@ -293,12 +289,6 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     if (!keyword) return { ok: false, error: '缺少 keyword' };
     const r = await d.orchestrator.resolveAndPlay(keyword, b.artist, b.quality);
     if (!r) return { ok: false, error: '未找到可播放音源' };
-
-    // 可选：同时推送到音箱
-    if (b.deviceId && d.speaker.status.enabled) {
-      const abs = d.publicBase().replace(/\/$/, '') + r.playUrl;
-      r.pushed = await d.speaker.play(String(b.deviceId), abs);
-    }
     return { ok: true, ...r };
   });
 
@@ -381,107 +371,6 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     const st = await d.player.setQueue(items, 0);
     return { ok: true, ...st };
   });
-
-  // ---------- 音箱 ----------
-  app.get('/api/speaker', async () => d.speaker.status);
-  // 账号密码登录（对齐 SongLoft MIoT 契约）
-  app.post('/api/speaker/login', async (req) => {
-    const b = (req.body || {}) as any;
-    const username = String(b.username || '').trim();
-    const password = String(b.password || '');
-    if (!username || !password) return { ok: false, error: '请填写账号与密码' };
-    const r = await d.speaker.login(username, password);
-    return {
-      ok: r.ok,
-      needVerify: !!r.needVerify,
-      notificationUrl: r.needVerify ? r.needVerify.notificationUrl : null,
-      sign: r.needVerify ? r.needVerify._sign : null,
-      // 第一步的登录上下文，校验步骤必须原样带回来
-      qs: r.needVerify ? r.needVerify.qs : null,
-      serviceParam: r.needVerify ? r.needVerify.serviceParam : null,
-      callback: r.needVerify ? r.needVerify.callback : null,
-      error: r.error ?? null,
-      status: d.speaker.status,
-    };
-  });
-
-  // 二次验证：用户在通知链接里完成验证后，把拿到的 ticket 回填到这里。
-  // ⚠️ 这不是短信验证码 —— 小米 micoapi 的二次验证走 identity/auth/verifyPhone，
-  // 把 ticket 当验证码提交会永远回 81003「仍需验证」。
-  app.post('/api/speaker/verify-ticket', async (req) => {
-    const b = (req.body || {}) as any;
-    const url = String(b.verifyUrl || '').trim();
-    const ticket = String(b.ticket || '').trim();
-    if (!url || !ticket) return { ok: false, error: '请填入验证页面给出的 ticket' };
-    const r = await d.speaker.verifyTicket(url, ticket);
-    return { ok: r.ok, error: r.error ?? null, status: d.speaker.status };
-  });
-
-  // 提交短信 / 邮箱验证码
-  app.post('/api/speaker/verify', async (req) => {
-    const b = (req.body || {}) as any;
-    const username = String(b.username || '').trim();
-    const password = String(b.password || '');
-    const code = String(b.code || '').trim();
-    const sign = String(b.sign || '');
-    if (!username || !password || !code || !sign) return { ok: false, error: '验证码参数不完整' };
-    // 校验步骤必须复用第一步的登录上下文（qs / serviceParam / callback），
-    // 缺了它们小米会返回 70016「登录验证失败」——与验证码是否正确无关。
-    const ctx = {
-      qs: b.qs ? String(b.qs) : undefined,
-      serviceParam: b.serviceParam ? String(b.serviceParam) : undefined,
-      callback: b.callback ? String(b.callback) : undefined,
-    };
-    const r = await d.speaker.verify(username, password, code, sign, ctx);
-    return { ok: r.ok, error: r.error ?? null, status: d.speaker.status };
-  });
-
-  // 退出登录
-  app.post('/api/speaker/logout', async () => {
-    d.speaker.logout();
-    return { ok: true, status: d.speaker.status };
-  });
-
-  app.post('/api/speaker/config', async (req) => {
-    d.speaker.configure(req.body as any);
-    return d.speaker.status;
-  });
-  app.post('/api/speaker/devices', async () => ({ devices: await d.speaker.refreshDevices() }));
-  app.post('/api/speaker/play', async (req) => {
-    const b = req.body as any;
-    return { ok: await d.speaker.play(String(b.deviceId || ''), String(b.url || '')) };
-  });
-  app.post('/api/speaker/say', async (req) => {
-    const b = req.body as any;
-    return { ok: await d.speaker.say(String(b.deviceId || ''), String(b.text || '')) };
-  });
-
-  // 播放控制（上一首/下一首/暂停/继续/停止）—— 与语音指令同一套底层能力
-  app.post('/api/speaker/control', async (req) => {
-    const b = (req.body || {}) as any;
-    const action = String(b.action || '');
-    const allowed = ['play', 'pause', 'stop', 'next', 'prev'];
-    if (!allowed.includes(action)) {
-      return { ok: false, error: `action 必须是 ${allowed.join(' / ')} 之一` };
-    }
-    return { ok: await d.speaker.control(String(b.deviceId || ''), action as any) };
-  });
-
-  // 音量：传 volume 为绝对值（0~100），传 delta 为相对调节
-  app.post('/api/speaker/volume', async (req) => {
-    const b = (req.body || {}) as any;
-    const deviceId = String(b.deviceId || '');
-    if (b.delta !== undefined) {
-      return { ok: await d.speaker.nudgeVolume(deviceId, Number(b.delta) || 0), mode: 'delta' };
-    }
-    if (b.volume === undefined) return { ok: false, error: '需要 volume 或 delta' };
-    return { ok: await d.speaker.setVolume(deviceId, Number(b.volume)), mode: 'absolute' };
-  });
-
-  // 当前播放上下文（哪台设备在放什么、队列位置）
-  app.get('/api/speaker/now', async () => ({
-    sessions: d.orchestrator.sessionSnapshot(),
-  }));
 
   // ---------- 本地文件流 ----------
   app.get('/stream/*', async (req, reply) => {

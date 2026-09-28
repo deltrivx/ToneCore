@@ -2,7 +2,7 @@
   "name": "tonecore",
   "version": "0.2.0",
   "private": true,
-  "description": "一体化音乐中枢 · 音源搜索 / 无损落库 / 自动刮削 / 小爱音箱接入",
+  "description": "一体化音乐中枢 · 音源搜索 / 无损落库 / 自动刮削 / 本地播放",
   "workspaces": [
     "apps/*"
   ],

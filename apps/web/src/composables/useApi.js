@@ -105,21 +105,6 @@ export const api = {
   playlistAddMany:(id, songIds) => req(`/api/playlists/${id}/tracks`, { method: 'POST', body: { songIds } }),
   playlistRemove: (id, songId) => req(`/api/playlists/${id}/tracks/${songId}`, { method: 'DELETE' }),
   playlistPlay:   (id) => req(`/api/playlists/${id}/play`, { method: 'POST' }),
-
-  speaker:        () => req('/api/speaker'),
-  speakerLogin:   (username, password) => req('/api/speaker/login', { method: 'POST', body: { username, password } }),
-  speakerVerify:  (b) => req('/api/speaker/verify', { method: 'POST', body: b }),
-  // 二次验证：小米给的 notificationUrl 完成验证后会产出 ticket，回填这里
-  speakerVerifyTicket: (verifyUrl, ticket) =>
-    req('/api/speaker/verify-ticket', { method: 'POST', body: { verifyUrl, ticket } }),
-  speakerLogout:  () => req('/api/speaker/logout', { method: 'POST' }),
-  saveSpeaker:    (c) => req('/api/speaker/config', { method: 'POST', body: c }),
-  speakerDevices: () => req('/api/speaker/devices', { method: 'POST' }),
-  speakerPlay:    (deviceId, url) => req('/api/speaker/play', { method: 'POST', body: { deviceId, url } }),
-  speakerSay:     (deviceId, text) => req('/api/speaker/say', { method: 'POST', body: { deviceId, text } }),
-  speakerControl: (deviceId, action) => req('/api/speaker/control', { method: 'POST', body: { deviceId, action } }),
-  speakerVolume:  (body) => req('/api/speaker/volume', { method: 'POST', body }),
-  speakerNow:     () => req('/api/speaker/now'),
 };
 
 export function useAsync(fn) {

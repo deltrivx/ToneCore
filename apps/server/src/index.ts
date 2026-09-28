@@ -10,13 +10,12 @@ import { Downloader } from './services/download/index.js';
 import { Library } from './services/library/index.js';
 import { AuthService } from './services/auth/index.js';
 import { Scraper } from './services/scraper/index.js';
-import { SpeakerService } from './services/speaker/index.js';
 import { Orchestrator } from './services/orchestrator.js';
 import { PlayerService } from './services/player/index.js';
 import { LyricsService } from './services/player/lyrics.js';
 import { registerRoutes } from './routes/index.js';
 
-/** 探测本机对外 IPv4（用于生成推给音箱的绝对地址） */
+/** 探测本机对外 IPv4（用于生成直链绝对地址） */
 function detectLanIP(): string {
   const ifaces = os.networkInterfaces();
   for (const list of Object.values(ifaces)) {
@@ -46,7 +45,6 @@ async function main() {
   const engine = new SourceEngine();
   const downloader = new Downloader(lib);
   const scraper = new Scraper();
-  const speaker = new SpeakerService();
   const orchestrator = new Orchestrator(engine, downloader, lib);
   const player = new PlayerService(engine, lib);
   const lyrics = new LyricsService();
@@ -68,7 +66,7 @@ async function main() {
     if (body === '' || body === undefined || body === null) return done(null, {});
     try { done(null, JSON.parse(body as string)); } catch (e) { done(e as Error); }
   });
-  await registerRoutes(app, { engine, downloader, lib, auth, scraper, speaker, orchestrator, player, lyrics, publicBase });
+  await registerRoutes(app, { engine, downloader, lib, auth, scraper, orchestrator, player, lyrics, publicBase });
 
   const webDir = path.resolve(process.cwd(), 'public');
   if (fs.existsSync(webDir)) {
@@ -82,16 +80,8 @@ async function main() {
   await app.listen({ port: cfg.port, host: '0.0.0.0' });
   logger.info({ port: cfg.port }, 'ToneCore 已就绪');
 
-  // 装配音箱（注册点歌回调）
-  orchestrator.attachSpeaker(speaker, publicBase);
-  if (speaker.enabled) {
-    await speaker.refreshDevices().catch(() => {});
-    speaker.startMonitor();
-  }
-
   const shutdown = async () => {
     logger.info('正在关闭...');
-    speaker.stopMonitor();
     await downloader.drain().catch(() => {});
     await app.close();
     process.exit(0);

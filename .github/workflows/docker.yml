@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    # 纯文档 / 纯测试改动不重建镜像：它们不影响镜像内容，
+    # 重建只会白白消耗 CI，并多一次污染 latest 的机会。
+    # 注意：tag（v*）触发不受 paths-ignore 影响，发版照常构建。
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.gitattributes'
   workflow_dispatch:
 
 env:
@@ -11,7 +20,39 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # 单元测试门禁：跑不过就根本轮不到构建，问题镜像推不上去。
+  # 对齐 AutoBuddy 的做法（test job 先跑，build 声明 needs: test）。
+  #
+  # 这些测试刻意只依赖 node:test 与产物，外加一个 music-metadata；
+  # 覆盖的是「错了会静默改坏数据或让界面少一块」的地方 ——
+  # 队列下标、循环模式边界、LRC 解析、封面抽取缺 await、
+  # 刮削封面的候选择优、FLAC 手写字节结构。
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # tags.test.mjs 引用 dist/ 下的产物并 import music-metadata，
+      # 因此必须装依赖 + 先构建 server，不能直接跑测试。
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build server
+        run: npm run build -w apps/server
+
+      - name: Run unit tests
+        run: npm test
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

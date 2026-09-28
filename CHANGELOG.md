@@ -5,6 +5,34 @@
 
 ---
 
+## [v0.18.0] - 2026-09-28
+
+<!-- summary: 彻底移除小爱音箱功能；播放改为点底栏直达全屏，浮窗面板废弃 -->
+
+### 移除
+
+- **小爱音箱功能彻底移除**（前后端全量解绑，不再提供回退开关）：
+  - 后端删除 `services/speaker/`（含 `protocol.ts` 全部认证与接口封装），
+    摘除 `routes/index.ts` 的全部 `/api/speaker/*` 路由、`Deps.speaker` 与
+    health 字段，移除 `index.ts` 的服务装配与监听启停；
+    `Orchestrator` 摘掉 `attachSpeaker` / `handleVoiceCommand` / `shiftQueue` /
+    `rememberSession` / `sessionSnapshot` 与 `PlaySession`（这些仅为语音存在）。
+  - 前端删除 `SpeakerConfig.vue`，移除 `useApi.js` 全部 `speaker*` 方法、
+    `Settings.vue` 的音箱卡片与登录/验证/退出的全部逻辑、以及仅音箱使用的
+    矢量图标。
+  - 起因：`734014` 该账号未绑定手机或邮箱，认证链路无法闭环；
+    功能整体下线，后续若要接入另行设计。
+
+### 变更
+
+- **播放入口改为成熟方案**：废弃「点击底部播放条弹出简易浮窗」，
+  点播放条任意位置直接展开全屏播放页（大碟 + 模糊背景 + 歌词 + 完整控制），
+  删除 `NowPlayingSheet.vue` 这一中间层，`usePlayer` 提供 `expand` / `collapse`。
+- 全屏播放页沿用 v0.17.0 的重构成果：封面模糊铺底、居中旋转大碟、
+  右侧歌词高亮、底部整幅控制区，移动端自动堆叠。
+
+---
+
 ## [v0.17.0] - 2026-09-28
 
 <!-- summary: 播放页重构为 QQ 音乐大屏风格；修复封面丢失与小米二次验证流程错误 -->

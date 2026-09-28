@@ -12,8 +12,8 @@
     </div>
 
     <template v-else>
-      <!-- ============ 左：封面 + 曲目信息 + 当前歌词（点击上浮面板） ============ -->
-      <div class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group" @click="player.openSheet">
+      <!-- ============ 左：封面 + 曲目信息 + 当前歌词（点直接进入全屏播放页） ============ -->
+      <div class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group" @click="player.expand">
         <div class="tc-cover tc-cover-md">
           <img v-if="coverUrl" :src="coverUrl" class="w-full h-full object-cover" alt="" />
           <Icon v-else name="music" :size="20" class="text-accent/70" />
@@ -88,7 +88,7 @@
           :style="{ '--p': state.volume + '%' }"
           @input="e => player.setVolume(Number(e.target.value))"
         />
-        <button class="tc-icon-btn" title="播放队列" @click="player.openSheet">
+        <button class="tc-icon-btn" title="播放队列 / 全屏" @click="player.expand">
           <Icon name="list" :size="17" />
         </button>
         <button class="tc-icon-btn" title="全屏歌词" @click="player.toggleExpand">
@@ -96,9 +96,9 @@
         </button>
       </div>
 
-      <!-- 移动端：仅保留上浮入口，控制交给上浮面板 -->
-      <button class="tc-icon-btn md:hidden shrink-0" title="正在播放" @click="player.openSheet">
-        <Icon :name="state.sheetOpen ? 'chevronDown' : 'chevronUp'" :size="18" />
+      <!-- 移动端：直接进全屏，控制都在全屏页里 -->
+      <button class="tc-icon-btn md:hidden shrink-0" title="正在播放" @click="player.expand">
+        <Icon name="chevronUp" :size="18" />
       </button>
     </template>
   </div>
