@@ -65,30 +65,11 @@
       在线推荐改放曲库页（见 Library.vue）。
     -->
 
-    <!-- ============ 推荐：专辑 / 歌手分类 ============ -->
-    <section v-if="!localKw && home.albums.length" class="space-y-2">
-      <h3 class="tc-section-title">专辑</h3>
-      <div class="flex flex-wrap gap-2">
-        <button v-for="a in home.albums" :key="a.name"
-          class="tc-chip hover:bg-white/[0.09] transition-colors max-w-[220px]"
-          :title="`${a.name} · ${a.count} 首`" @click="filterBy('album', a.name)">
-          <span class="truncate">{{ a.name }}</span>
-          <span class="tc-num opacity-60 ml-1">{{ a.count }}</span>
-        </button>
-      </div>
-    </section>
+    <!--
+      「专辑 / 歌手」分类已按用户要求取消：
+      它们只是把本地歌曲换个角度再摆一遍，反而挡住了本地歌曲本身。
+    -->
 
-    <section v-if="!localKw && home.artists.length" class="space-y-2">
-      <h3 class="tc-section-title">歌手</h3>
-      <div class="flex flex-wrap gap-2">
-        <button v-for="a in home.artists" :key="a.name"
-          class="tc-chip hover:bg-white/[0.09] transition-colors max-w-[180px]"
-          :title="`${a.name} · ${a.count} 首`" @click="filterBy('artist', a.name)">
-          <span class="truncate">{{ a.name }}</span>
-          <span class="tc-num opacity-60 ml-1">{{ a.count }}</span>
-        </button>
-      </div>
-    </section>
 
     <!-- ============ 状态区 ============ -->
     <div v-if="loading && !songs.length" class="grid gap-3"
@@ -160,6 +141,85 @@
       </div>
     </div>
 
+    <!-- ============ 本地歌曲管理（按用户要求从曲库页迁来，放在本地列表后方）============
+         分工：主页负责「显示 + 处理本地歌曲」，曲库负责「推荐 + 下载」。 -->
+    <template v-if="!localKw">
+      <!-- 操作区 -->
+      <div class="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <h3 class="tc-section-title">本地曲库管理</h3>
+          <p class="text-xs text-fg-subtle mt-0.5">
+            共 <span class="tc-num text-accent">{{ total }}</span> 首 · 云端搜歌与推荐请到「曲库」
+          </p>
+        </div>
+        <div class="flex gap-2 flex-wrap items-center">
+          <button class="tc-btn text-xs" :disabled="scanning" @click="scan">
+            <Icon name="scan" :size="14" />
+            <span>{{ scanning ? '扫描中…' : '扫描' }}</span>
+          </button>
+          <button class="tc-btn text-xs" :disabled="auditing" @click="audit">
+            <Icon name="info" :size="14" />
+            <span>{{ auditing ? '审计中…' : '元数据审计' }}</span>
+          </button>
+          <button class="tc-btn text-xs" :disabled="backfilling" @click="backfill">
+            <Icon name="pencil" :size="14" />
+            <span>{{ backfilling ? '补全中…' : '补全标签' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 失效曲目：文件被外部删除，索引里仍有残留 -->
+      <div v-if="missingCount > 0"
+        class="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-md border border-amber-500/30 bg-amber-500/[0.06]">
+        <Icon name="alert" :size="16" class="text-amber-300 shrink-0" />
+        <span class="text-sm text-amber-300">
+          有 <b class="tc-num">{{ missingCount }}</b> 首曲目在磁盘上已不存在，仍残留在曲库中。
+        </span>
+        <button class="tc-btn text-xs border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+          :disabled="pruning" @click="prune">
+          {{ pruning ? '清理中…' : '清理失效曲目' }}
+        </button>
+        <button class="tc-icon-btn tc-icon-btn-sm" title="重新检查" @click="checkMissing">
+          <Icon name="refresh" :size="14" />
+        </button>
+      </div>
+
+      <!-- 统计卡 -->
+      <div v-if="stats" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">曲目</div>
+          <div class="text-lg font-semibold tc-num text-fg">{{ stats.total }}</div>
+        </div>
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">歌手</div>
+          <div class="text-lg font-semibold tc-num text-fg">{{ stats.artists }}</div>
+        </div>
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">专辑</div>
+          <div class="text-lg font-semibold tc-num text-fg">{{ stats.albums }}</div>
+        </div>
+        <div class="tc-card p-3">
+          <div class="text-xs text-fg-muted mb-0.5">今日新增</div>
+          <div class="text-lg font-semibold tc-num" :class="stats.addedToday>0?'text-accent':'text-fg'">
+            {{ stats.addedToday }}
+          </div>
+        </div>
+      </div>
+
+      <!-- 审计 / 补全结果 -->
+      <div v-if="auditResult" class="tc-card p-3 text-sm flex flex-wrap gap-4">
+        <span class="text-fg-muted">检查 <b class="text-fg tc-num">{{ auditResult.checked }}</b> 首</span>
+        <span class="text-fg-muted">缺封面 <b class="text-amber-400 tc-num">{{ auditResult.missingCover }}</b></span>
+        <span class="text-fg-muted">缺元数据 <b class="text-amber-400 tc-num">{{ auditResult.missingMeta }}</b></span>
+        <span class="text-fg-muted">缺歌词 <b class="text-amber-400 tc-num">{{ auditResult.missingLyrics ?? 0 }}</b></span>
+      </div>
+      <div v-if="backfillResult" class="tc-card p-3 text-sm flex flex-wrap gap-4">
+        <span class="text-fg-muted">扫描 <b class="text-fg tc-num">{{ backfillResult.scanned }}</b></span>
+        <span class="text-fg-muted">补全 <b class="text-emerald-400 tc-num">{{ backfillResult.fixed }}</b></span>
+        <span class="text-fg-muted">失败 <b class="text-fg-subtle tc-num">{{ backfillResult.failed }}</b></span>
+      </div>
+    </template>
+
     <!-- 轻提示 -->
     <div v-if="message" class="tc-alert" :class="message.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
       <Icon :name="message.ok ? 'check' : 'alert'" :size="15" class="mt-0.5" />
@@ -183,23 +243,64 @@ const total = ref(0);
 const loading = ref(false);
 const message = ref(null);
 
-/** 首页聚合数据：歌单 + 专辑/歌手分类 + 统计（「最近入库」与在线推荐已按用户要求移除） */
-const home = ref({ playlists: [], albums: [], artists: [], stats: null });
+/** 首页聚合数据：歌单（专辑/歌手分类与在线推荐已按用户要求移除） */
+const home = ref({ playlists: [] });
 const homeLoading = ref(false);
 
 async function loadHome() {
   homeLoading.value = true;
   try {
     const r = await api.home();
-    if (r) home.value = {
-      playlists: r.playlists || [],
-      albums: r.albums || [],
-      artists: r.artists || [],
-      stats: r.stats || null,
-    };
-  } catch { /* 首页增量数据失败不影响曲库主体，静默 */ }
+    if (r) home.value = { playlists: r.playlists || [] };
+  } catch { /* 首页增量数据失败不影响本地列表，静默 */ }
   finally { homeLoading.value = false; }
 }
+
+// ---------- 本地曲库管理（按用户要求从曲库页迁来）----------
+const stats = ref(null);
+const scanning = ref(false);
+const auditing = ref(false);
+const backfilling = ref(false);
+const missingCount = ref(0);
+const pruning = ref(false);
+const auditResult = ref(null);
+const backfillResult = ref(null);
+
+async function loadStats() { try { stats.value = await api.libraryStats(); } catch { stats.value = null; } }
+
+async function scan() {
+  scanning.value = true; message.value = null;
+  try {
+    const r = await api.scan();
+    await Promise.all([load(), loadStats(), checkMissing()]);
+    message.value = { ok: true, text: `扫描完成，新增 ${r.added ?? 0} 首，共 ${r.total ?? 0} 首` };
+  } finally { scanning.value = false; }
+}
+
+/** 失效曲目：磁盘上已被外部删除，索引里仍有残留 */
+async function checkMissing() {
+  try { const r = await api.libraryMissing(); missingCount.value = r?.missing ?? 0; }
+  catch { missingCount.value = 0; }
+}
+async function prune() {
+  if (!confirm(`清理 ${missingCount.value} 首失效曲目？\n仅删除索引条目（并移出相关歌单），不会动磁盘文件。`)) return;
+  pruning.value = true; message.value = null;
+  try {
+    const r = await api.libraryPrune();
+    message.value = r?.ok
+      ? { ok: true, text: r.message || `已清理 ${r.removed} 首` }
+      : { ok: false, text: r?.error || '清理失败' };
+    await Promise.all([load(), loadStats(), checkMissing()]);
+  } finally { pruning.value = false; }
+}
+
+async function audit() { auditing.value = true; try { auditResult.value = await api.audit(200); } finally { auditing.value = false; } }
+async function backfill() {
+  backfilling.value = true; message.value = null;
+  try { backfillResult.value = await api.backfill(20); await load(); }
+  finally { backfilling.value = false; }
+}
+
 
 /** 显示方式：列表 / 小图 / 中图 */
 const VIEWS = [
@@ -264,11 +365,6 @@ async function playPlaylist(pl) {
   }
 }
 
-/** 点分类推荐 → 落到本地检索框 */
-function filterBy(kind, name) {
-  localKw.value = name;
-}
-
 async function playSong(s) {
   const i = filtered.value.findIndex(x => x.id === s.id);
   await player.playList(toQueue(filtered.value), Math.max(0, i));
@@ -280,5 +376,5 @@ async function appendSong(s) {
   setTimeout(() => { message.value = null; }, 1800);
 }
 
-onMounted(() => { load(); loadHome(); });
+onMounted(() => { load(); loadHome(); loadStats(); checkMissing(); });
 </script>
