@@ -7,12 +7,7 @@
       · 底部整幅控制区（进度 / 主控制 / 音量）
     移动端自动上下堆叠，主控制区保持可单手操作。
   -->
-  <div
-    class="fixed inset-0 z-50 overflow-hidden bg-surface"
-    @touchstart.passive="onTouchStart"
-    @touchmove.passive="onTouchMove"
-    @touchend.passive="onTouchEnd"
-  >
+  <div class="fixed inset-0 z-50 overflow-hidden bg-surface">
     <!-- 背景层：封面模糊 + 暗色渐变压底，保证文字对比度 -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <img v-if="player.coverUrl.value" :src="player.coverUrl.value"
@@ -20,12 +15,7 @@
       <div class="absolute inset-0 bg-gradient-to-b from-surface/70 via-surface/85 to-surface"></div>
     </div>
 
-    <!-- 内容层：左右滑切歌时整体平移（跟手拖动会去掉过渡，松手后回弹/滑出才带动画） -->
-    <div
-      class="relative h-full flex flex-col will-change-transform"
-      :class="swiping ? 'transition-transform duration-200 ease-out' : (swipeShift ? '' : 'transition-transform duration-200 ease-out')"
-      :style="{ transform: `translateX(${swipeShift}px)` }"
-    >
+    <div class="relative h-full flex flex-col">
       <!-- 顶栏 -->
       <div class="h-[58px] shrink-0 flex items-center gap-3 px-4 md:px-6">
         <button class="tc-icon-btn" title="收起" @click="toggleExpand">
@@ -44,7 +34,19 @@
       <div class="flex-1 min-h-0 flex flex-col md:flex-row md:items-stretch gap-4 md:gap-8 px-4 md:px-8 pb-2">
         <!-- 左：大碟 + 曲目信息 -->
         <div class="md:w-[44%] shrink-0 flex flex-col items-center justify-center gap-5 min-h-0">
-          <div class="relative w-[min(42vh,300px)] md:w-[min(46vh,340px)] aspect-square shrink-0">
+          <!--
+            只有专辑图响应左右滑。
+            此前手势挂在整页根节点上、并平移整个内容层 —— 播放界面会整体抖动，
+            而且和歌词区滚动、进度条拖动互相打架。现在手势与位移都只作用于大碟。
+          -->
+          <div
+            class="relative w-[min(42vh,300px)] md:w-[min(46vh,340px)] aspect-square shrink-0 will-change-transform"
+            :class="dragActive ? '' : 'transition-transform duration-200 ease-out'"
+            :style="{ transform: `translateX(${swipeShift}px)` }"
+            @touchstart.passive="onTouchStart"
+            @touchmove.passive="onTouchMove"
+            @touchend.passive="onTouchEnd"
+          >
             <!-- 黑胶底盘 -->
             <div class="absolute inset-[-6%] rounded-full bg-black/55 border border-white/10
                         shadow-[0_18px_50px_rgba(0,0,0,0.55)]"></div>
@@ -76,14 +78,18 @@
           <div v-if="state.lyrics.lines.length"
             class="shrink-0 flex items-center justify-center gap-1.5 px-4 py-1.5">
             <span class="text-[10px] text-fg-subtle">歌词校准</span>
+            <!-- 一键对齐：听到某句正在唱时点这里，比反复 ±0.5s 试快得多 -->
             <button class="tc-btn-ghost text-[11px] px-1.5 py-0.5"
-              title="歌词提前 0.5 秒" @click="setLyricOffset(0.5)">−0.5s</button>
+              title="听到某句正在唱时点一下：把这句对齐到此刻（整首偏移一次到位）"
+              @click="alignLyricToNow">对齐</button>
+            <button class="tc-btn-ghost text-[11px] px-1.5 py-0.5"
+              title="歌词整体提前 0.5 秒（歌词比唱的慢时用）" @click="setLyricOffset(0.5)">提前</button>
             <span class="tc-num text-[11px] w-12 text-center"
               :class="state.lyricOffset ? 'text-accent' : 'text-fg-subtle'">
               {{ (state.lyricOffset > 0 ? '+' : '') + Number(state.lyricOffset || 0).toFixed(1) }}s
             </span>
             <button class="tc-btn-ghost text-[11px] px-1.5 py-0.5"
-              title="歌词延后 0.5 秒（有前奏的歌用这个）" @click="setLyricOffset(-0.5)">+0.5s</button>
+              title="歌词整体延后 0.5 秒（歌词比唱的快、有前奏时用这个）" @click="setLyricOffset(-0.5)">延后</button>
             <button v-if="state.lyricOffset" class="tc-btn-ghost text-[11px] px-1.5 py-0.5"
               title="恢复默认" @click="resetLyricOffset">重置</button>
           </div>
@@ -214,7 +220,7 @@ const player = usePlayer();
 const state = player.state;
 const cur = computed(() => player.current.value);
 const { toggle, next, prev, seek, setVolume, cycleRepeat, jump, removeAt, clear, toggleExpand } = player;
-const { setLyricOffset } = player;
+const { setLyricOffset, alignLyricToNow } = player;
 
 /** 归零：直接把当前偏移反向补回去即可（setLyricOffset 是增量式） */
 function resetLyricOffset() { setLyricOffset(-(state.lyricOffset || 0)); }
@@ -256,6 +262,8 @@ const SWIPE_RATIO = 1.5;
 
 /** 跟手位移（px）：拖动时实时跟手，松手后回弹或滑出 */
 const swipeShift = ref(0);
+/** 手指正按着专辑图拖动中：此时不加过渡，才能实时跟手 */
+const dragActive = ref(false);
 /** 正在播放切歌动画时锁住，避免连续触发 */
 const swiping = ref(false);
 
@@ -288,10 +296,12 @@ function onTouchMove(e) {
     swipe.locking = false;
   }
   // 阻尼：越拖越沉，避免一划到底
+  dragActive.value = true;
   swipeShift.value = dx * 0.55;
 }
 
 async function onTouchEnd(e) {
+  dragActive.value = false;
   if (!swipe.active) { swipeShift.value = 0; return; }
   swipe.active = false;
   // 队列抽屉打开时不切歌，避免误触（此时用户大概率在操作列表）

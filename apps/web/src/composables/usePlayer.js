@@ -1,5 +1,6 @@
 import { reactive, ref, computed } from 'vue';
 import { api } from './useApi.js';
+import { useMediaSession } from './useMediaSession.js';
 
 /**
  * 播放器状态（全局单例）。
@@ -129,6 +130,9 @@ function applyState(r) {
       if (!state.playing && !a.paused) a.pause();
     }
   }
+
+  // 曲目或播放状态一变，就同步给系统媒体控件
+  media.update();
 }
 
 /** 拉取当前曲目歌词 */
@@ -198,6 +202,26 @@ export function saveProgressNow() {
   } catch { /* 进度丢失不致命，静默 */ }
 }
 
+/**
+ * 一键对齐：把「当前高亮的那句」对齐到此刻正在唱的位置。
+ *
+ * 这是解决前奏型错位最省事的办法 —— 用户听到某句时点一下即可，
+ * 不必估算差了几秒，也不必反复 ±0.5s 试。
+ *
+ * 推导：syncLyricIndex 用 `t = currentTime + offset` 去匹配行，
+ * 想让第 i 行此刻正好高亮，就要 `now + offset = lines[i].time`，
+ * 故目标 offset = lines[i].time - now。
+ */
+export function alignLyricToNow() {
+  const lines = state.lyrics.lines;
+  if (!lines.length) return false;
+  const i = state.lyricIndex;
+  if (i < 0 || !lines[i]) return false;
+  const target = lines[i].time - (state.currentTime || 0);
+  setLyricOffset(target - (state.lyricOffset || 0));
+  return true;
+}
+
 /** 歌词偏移的持久化键：按曲目区分（同一首歌在不同位置错得不一样） */
 function lyricOffsetKey(c) {
   if (!c) return '';
@@ -233,8 +257,9 @@ export function setLyricOffset(delta) {
 function syncLyricIndex() {
   const lines = state.lyrics.lines;
   if (!lines.length) return;
-  // 叠加用户校准的偏移量；+0.25 是让歌词略微跟手
-  const t = state.currentTime + 0.25 + (state.lyricOffset || 0);
+  // ⚠️ 这里**不加**任何提前量：有前奏的歌歌词本来就从第 0 秒排，
+  // 再提前只会让歌词跑得更快，正是「歌没放完、歌词已空」的成因之一。
+  const t = state.currentTime + (state.lyricOffset || 0);
   let lo = 0, hi = lines.length - 1, ans = -1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
@@ -263,6 +288,28 @@ export function usePlayer() {
   });
 
   const hasNext = computed(() => state.queue.length > 1 || state.repeat === 'list');
+
+  /**
+   * 系统媒体控件（锁屏 / 通知栏 / 耳机线控）。
+   *
+   * 少了这一层，锁屏上只有浏览器给的页面标题，没有专辑图、歌名、歌手，
+   * 也没有播放控制 —— 不像一个音乐页面。
+   */
+  const media = useMediaSession({
+    getTrack: () => current.value,
+    getCover: () => coverUrl.value,
+    getPlaying: () => state.playing,
+    getDuration: () => state.duration,
+    getPosition: () => state.currentTime,
+    handlers: {
+      play: () => { play(); },
+      pause: () => { pause(); },
+      prev: () => { prev(); },
+      next: () => { next(); },
+      seekBackward: () => { seek(Math.max(0, (state.currentTime || 0) - 10)); },
+      seekForward: () => { seek(Math.min(state.duration || 0, (state.currentTime || 0) + 10)); },
+    },
+  });
 
   /** 用一组歌替换队列并从某首开始播 */
   async function playList(songs, index = 0) {
@@ -415,7 +462,7 @@ export function usePlayer() {
 
   return {
     state,
-    saveProgressNow, current, coverUrl, hasNext, REPEAT_META, setLyricOffset,
+    saveProgressNow, current, coverUrl, hasNext, REPEAT_META, setLyricOffset, alignLyricToNow,
     init, playList, append, play, pause, toggle, next, prev, jump, seek,
     setVolume, cycleRepeat, removeAt, clear, toggleExpand, expand, collapse, refresh,
   };
