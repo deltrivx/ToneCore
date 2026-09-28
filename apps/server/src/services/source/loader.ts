@@ -335,6 +335,22 @@ export function normalizeLoadError(raw: string): string {
 }
 
 
+/**
+ * 从搜索结果条目里挑出封面地址。
+ *
+ * 各家洛雪脚本的封面字段名并不统一 —— 实测：
+ *   - 「全豆要[聚合音源]」用 `pic`
+ *   - 「星海音乐源」用 `cover`
+ *   - 部分脚本用 `img`（标准洛雪字段）
+ * 统一在这里兜住，取第一个非空值。
+ */
+function pickCover(it: any): string | undefined {
+  const v = it?.img ?? it?.picUrl ?? it?.pic ?? it?.cover ?? it?.albumImg ?? it?.image;
+  if (!v) return undefined;
+  const s = String(v).trim();
+  return s && s !== 'null' && s !== 'undefined' ? s : undefined;
+}
+
 /** 把脚本搜索返回归一化成 Song[]（兼容多种返回形态） */
 export function normalizeSearchResult(raw: unknown): Song[] {
   const arr = Array.isArray(raw) ? raw : (raw as any)?.data ?? (raw as any)?.list ?? [];
@@ -346,7 +362,10 @@ export function normalizeSearchResult(raw: unknown): Song[] {
     artist: String(it?.artist ?? it?.singer ?? ''),
     album: it?.album ? String(it.album) : undefined,
     duration: Number(it?.interval ?? it?.duration ?? 0) || undefined,
-    coverUrl: it?.img ? String(it.img) : undefined,
+    // ⚠️ 封面字段名各家脚本不统一：实测「全豆要」给的是 `pic`、「星海音乐源」
+    // 给的是 `cover`，而这里只读 `img` —— 于是**在线搜索结果永远没有封面**。
+    // 兼容常见写法，取第一个非空值。
+    coverUrl: pickCover(it),
     raw: it,
   })).filter((x) => x.title);
 }

@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { loadConfig, saveConfig, lockedByEnv } from '../config.js';
 import { VERSION } from '../version.js';
+import { logger } from '../logger.js';
 import type { SourceEngine } from '../services/source/index.js';
 import type { Downloader } from '../services/download/index.js';
 import type { Library } from '../services/library/index.js';
@@ -365,6 +366,26 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
       albums: pick(byAlbum, 12),
       artists: pick(byArtist, 12),
     };
+  });
+
+  /**
+   * 在线推荐（榜单）。
+   *
+   * 曲库小的时候，本地那几个维度（最近入库/专辑/歌手）很快就没什么可推荐的，
+   * 首页看着是空的。这里补一个在线源。
+   *
+   * ⚠️ 失败返回空数组而不是抛错：在线推荐只是锦上添花，
+   * 网络不通不该让首页整体加载失败。
+   */
+  app.get('/api/recommend', async () => {
+    try {
+      const { fetchRecommendBoards } = await import('../services/recommend/index.js');
+      const boards = await fetchRecommendBoards(12);
+      return { ok: true, boards };
+    } catch (e) {
+      logger.warn({ err: String(e).slice(0, 160) }, '在线推荐获取失败');
+      return { ok: false, boards: [] };
+    }
   });
 
   app.get('/api/playlists', async () => ({ playlists: d.lib.listPlaylists() }));

@@ -60,6 +60,7 @@ export const api = {
   sourcesAll:  () => req('/api/sources/all'),
   sourcesHealth: () => req('/api/sources/health'),
   home:          () => req('/api/home'),
+  recommend:     () => req('/api/recommend'),
   libraryStats:  () => req('/api/library/stats'),
   sourceToggle: (file, enabled) => req('/api/sources/toggle', { method: 'POST', body: { file, enabled } }),
   sourceDelete: (file) => req('/api/sources/delete', { method: 'POST', body: { file } }),

@@ -95,47 +95,10 @@
         <span class="text-fg-muted">失败 <b class="text-fg-subtle tc-num">{{ backfillResult.failed }}</b></span>
       </div>
 
-      <!-- ============ 歌单（歌单归曲库，不再占主页版面） ============ -->
-      <section>
-        <div class="flex items-baseline justify-between mb-3">
-          <h3 class="tc-section-title">歌单</h3>
-          <button class="tc-btn-ghost text-xs" @click="createPlaylist">
-            <Icon name="plus" :size="14" />
-            <span>新建</span>
-          </button>
-        </div>
-
-        <div v-if="!playlists.length" class="tc-empty">
-          <div class="tc-empty-icon"><Icon name="disc" :size="22" /></div>
-          <div class="tc-empty-title">还没有歌单</div>
-          <div class="tc-empty-desc">在下方曲目上点「加入歌单」，或点右上角新建</div>
-        </div>
-
-        <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          <div v-for="pl in playlists" :key="pl.id" class="group cursor-pointer" @click="openPlaylist(pl)">
-            <div class="relative tc-cover-art">
-              <img v-if="pl.cover" :src="`/cover/${pl.cover}`" class="w-full h-full object-cover" loading="lazy" />
-              <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
-                <Icon name="disc" :size="30" />
-              </div>
-              <!-- hover 覆盖层：整块可点播放 -->
-              <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
-                title="播放歌单" @click.stop="playPlaylist(pl)">
-                <span class="w-11 h-11 rounded-full bg-accent text-fg-inverse flex items-center justify-center">
-                  <Icon name="play" :size="18" />
-                </span>
-              </button>
-              <button class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-rose-300/80
-                             opacity-0 group-hover:opacity-100 flex items-center justify-center"
-                title="删除歌单" @click.stop="delPlaylist(pl)">
-                <Icon name="x" :size="13" />
-              </button>
-            </div>
-            <div class="mt-2 text-sm text-fg truncate">{{ pl.name }}</div>
-            <div class="text-xs tc-num text-fg-muted">{{ pl.count }} 首</div>
-          </div>
-        </div>
-      </section>
+      <!--
+        歌单已从曲库页移除（用户要求）。
+        曲库页专注「我的音乐」：检索 + 曲目列表。
+      -->
 
       <!-- ============ 曲目列表 ============ -->
       <div v-if="!data?.songs?.length" class="tc-empty">
@@ -165,10 +128,6 @@
             <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
               title="加入队列" @click.stop="addOne(s)">
               <Icon name="plus" :size="14" />
-            </button>
-            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
-              title="加入歌单" @click.stop="openPick(s)">
-              <Icon name="disc" :size="14" />
             </button>
             <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100 text-rose-400/70 hover:text-rose-400"
               :disabled="deletingId===s.id" title="移入回收站" @click.stop="remove(s)">
@@ -222,10 +181,6 @@
             <Icon name="refresh" :size="14" />
             <span>{{ scraping ? '刮削中…' : '重新刮削这首' }}</span>
           </button>
-          <button class="tc-btn text-xs" @click="openPick(detail)">
-            <Icon name="disc" :size="14" />
-            <span>加入歌单</span>
-          </button>
           <button class="tc-btn-danger text-xs" :disabled="deletingId===detail.id" @click="remove(detail)">
             <Icon name="trash" :size="14" />
             <span>移入回收站</span>
@@ -235,80 +190,6 @@
         <div v-if="scrapeMsg" class="tc-alert" :class="scrapeMsg.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
           <Icon :name="scrapeMsg.ok ? 'check' : 'alert'" :size="15" class="mt-0.5" />
           <span>{{ scrapeMsg.text }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 加入歌单：选择浮层 -->
-    <div v-if="pickSong" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="pickSong = null">
-      <div class="tc-card w-full max-w-sm p-4 space-y-3">
-        <div class="text-sm font-medium text-fg flex items-center justify-between gap-2">
-          <span class="truncate">加入歌单：{{ pickSong.title }}</span>
-          <button class="tc-icon-btn tc-icon-btn-sm shrink-0" @click="pickSong = null">
-            <Icon name="x" :size="14" />
-          </button>
-        </div>
-        <div v-if="!playlists.length" class="text-xs text-fg-subtle py-2">还没有歌单，可点下方「新建歌单并加入」。</div>
-        <div v-else class="max-h-[50vh] overflow-y-auto space-y-1">
-          <button v-for="pl in playlists" :key="pl.id"
-            class="w-full text-left px-3 py-2 rounded-md text-sm text-fg-muted hover:bg-white/[0.06] hover:text-fg"
-            @click="addToPlaylist(pl)">
-            {{ pl.name }} <span class="text-fg-subtle text-[11px] tc-num">（{{ pl.count }}）</span>
-          </button>
-        </div>
-        <button class="tc-btn-primary w-full text-xs" @click="createAndAdd">新建歌单并加入</button>
-      </div>
-    </div>
-
-    <!-- ============ 歌单详情浮层 ============ -->
-    <div v-if="activePlaylist" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4"
-      @click.self="activePlaylist = null">
-      <div class="w-full sm:max-w-lg max-h-[80vh] flex flex-col rounded-t-xl sm:rounded-xl
-                  border border-line bg-surface-raised overflow-hidden">
-        <div class="px-4 py-3 border-b border-line flex items-center gap-3">
-          <div class="w-10 h-10 shrink-0 tc-cover rounded-md">
-            <img v-if="activePlaylist.cover" :src="`/cover/${activePlaylist.cover}`" class="w-full h-full object-cover" />
-            <Icon v-else name="disc" :size="18" class="text-fg-subtle" />
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium text-fg truncate">{{ activePlaylist.name }}</div>
-            <div class="text-xs tc-num text-fg-muted">{{ activeTracks.length }} 首</div>
-          </div>
-          <button class="tc-btn text-xs" :disabled="!activeTracks.length" @click="playPlaylist(activePlaylist)">
-            <Icon name="play" :size="13" />
-            <span>播放</span>
-          </button>
-          <button class="tc-icon-btn tc-icon-btn-sm" @click="activePlaylist = null">
-            <Icon name="x" :size="15" />
-          </button>
-        </div>
-
-        <div class="flex-1 min-h-0 overflow-y-auto divide-y divide-line">
-          <div v-if="!activeTracks.length" class="tc-empty">
-            <div class="tc-empty-icon"><Icon name="disc" :size="20" /></div>
-            <div class="tc-empty-title">歌单还是空的</div>
-            <div class="tc-empty-desc">在曲库列表上点「加入歌单」</div>
-          </div>
-          <div v-for="(s, i) in activeTracks" :key="s.id" class="tc-row group">
-            <span class="w-5 shrink-0 text-center tc-num text-xs"
-              :class="isCurrent(s) ? 'text-accent' : 'text-fg-subtle'">{{ i + 1 }}</span>
-            <div class="tc-cover tc-cover-sm">
-              <img v-if="s.cover" :src="`/cover/${s.cover}`" class="w-full h-full object-cover" loading="lazy" />
-              <Icon v-else name="music" :size="13" class="text-fg-subtle" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="text-sm truncate" :class="isCurrent(s) ? 'text-accent' : 'text-fg'">{{ s.title }}</div>
-              <div class="text-xs text-fg-muted truncate">{{ s.artist || '未知歌手' }}</div>
-            </div>
-            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
-              title="播放" @click="playTrackAt(activePlaylist, i)">
-              <Icon name="play" :size="14" />
-            </button>
-            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100 text-rose-400/70"
-              title="移出歌单" @click="removeTrack(activePlaylist, s)">
-              <Icon name="x" :size="14" />
-            </button>
-          </div>
         </div>
       </div>
     </div>
@@ -355,12 +236,6 @@ const detail = ref(null);
 const scraping = ref(false);
 const scrapeMsg = ref(null);
 
-const pickSong = ref(null);
-const playlists = ref([]);
-/** 歌单详情浮层 */
-const activePlaylist = ref(null);
-const activeTracks = ref([]);
-
 function ext(p) { const m = /\.([^.]+)$/.exec(p || ''); return m ? m[1].toUpperCase() : ''; }
 function initial(s) { const t = String(s.title || '').trim(); return t ? t[0].toUpperCase() : '♪'; }
 function isCurrent(s) { return cur.value && cur.value.filePath === s.filePath; }
@@ -377,56 +252,8 @@ async function load() {
   data.value = await api.library(PAGE, offset.value, '');
 }
 async function loadStats() { stats.value = await api.libraryStats(); }
-async function loadPlaylists() { const r = await api.playlists(); playlists.value = (r && r.playlists) || []; }
 
 function page(dir) { offset.value = Math.max(0, offset.value + dir * PAGE); load(); }
-
-// ---------- 歌单（归曲库） ----------
-async function createPlaylist() {
-  const name = prompt('歌单名称', '新歌单');
-  if (name === null) return;
-  const r = await api.playlistCreate(name.trim() || '新歌单');
-  if (r && r.ok) { await loadPlaylists(); message.value = { ok: true, text: '已新建歌单' }; }
-  else message.value = { ok: false, text: (r && r.error) || '新建失败' };
-}
-
-async function delPlaylist(pl) {
-  if (!confirm(`删除歌单「${pl.name}」？`)) return;
-  const r = await api.playlistDelete(pl.id);
-  if (r && r.ok) {
-    playlists.value = playlists.value.filter(p => p.id !== pl.id);
-    if (activePlaylist.value?.id === pl.id) activePlaylist.value = null;
-  } else message.value = { ok: false, text: (r && r.error) || '删除失败' };
-}
-
-async function openPlaylist(pl) {
-  const r = await api.playlistGet(pl.id);
-  activeTracks.value = (r && r.tracks) || [];
-  activePlaylist.value = pl;
-}
-
-async function playPlaylist(pl) {
-  message.value = null;
-  try {
-    const r = await api.playlistPlay(pl.id);
-    if (r && r.ok) await player.refresh();
-    else message.value = { ok: false, text: (r && r.error) || '歌单为空' };
-  } catch (e) { message.value = { ok: false, text: '播放失败：' + e }; }
-}
-
-async function playTrackAt(pl, index) {
-  const r = await api.playlistPlay(pl.id);
-  if (r && r.ok) await player.jump(Math.min(index, player.state.queue.length - 1));
-}
-
-async function removeTrack(pl, s) {
-  const r = await api.playlistRemove(pl.id, s.id);
-  if (r && r.ok) {
-    const g = await api.playlistGet(pl.id);
-    activeTracks.value = (g && g.tracks) || [];
-    await loadPlaylists();
-  }
-}
 
 function play(song, index) {
   const songs = (data.value?.songs || []).map(s => ({
@@ -498,21 +325,5 @@ async function scrapeDetail() {
   finally { scraping.value = false; }
 }
 
-// ---------- 加入歌单 ----------
-function openPick(song) { pickSong.value = song; }
-async function addToPlaylist(pl) {
-  const s = pickSong.value; if (!s) return;
-  const r = await api.playlistAdd(pl.id, s.id);
-  if (r && r.ok) { message.value = { ok: true, text: `已加入「${pl.name}」` }; pickSong.value = null; await loadPlaylists(); }
-  else message.value = { ok: false, text: (r && r.error) || '加入失败' };
-}
-async function createAndAdd() {
-  const s = pickSong.value; if (!s) return;
-  const name = prompt('新歌单名称', '新歌单');
-  if (name === null) return;
-  const c = await api.playlistCreate(name.trim() || '新歌单');
-  if (c && c.ok) { await api.playlistAdd(c.id, s.id); pickSong.value = null; await loadPlaylists(); message.value = { ok: true, text: '已新建并加入歌单' }; }
-}
-
-onMounted(() => { load(); loadStats(); loadPlaylists(); checkMissing(); });
+onMounted(() => { load(); loadStats(); checkMissing(); });
 </script>

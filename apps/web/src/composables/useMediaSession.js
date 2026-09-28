@@ -79,6 +79,13 @@ export function useMediaSession({ getTrack, getCover, getPlaying, getDuration, g
     try {
       // artwork 给多个尺寸：系统按自己的需要挑，只给一张可能不显示
       const src = toAbsolute(getCover?.());
+      // ⚠️ type 必须按真实扩展名给：此前一律写 image/png，
+      // 而曲库里封面绝大多数是 .jpg —— 系统控件会拒掉 MIME 不匹配的艺术图，
+      // 表现就是「锁屏没有专辑图」。
+      const ext = (src.split('?')[0].split('.').pop() || '').toLowerCase();
+      const type = ext === 'png' ? 'image/png'
+        : ext === 'webp' ? 'image/webp'
+        : 'image/jpeg';
       ms.metadata = new window.MediaMetadata({
         title: t.title || '未知歌曲',
         artist: t.artist || '未知歌手',
@@ -87,7 +94,7 @@ export function useMediaSession({ getTrack, getCover, getPlaying, getDuration, g
           ? [96, 128, 192, 256, 384, 512].map((size) => ({
               src,
               sizes: `${size}x${size}`,
-              type: 'image/png',
+              type,
             }))
           : [],
       });
