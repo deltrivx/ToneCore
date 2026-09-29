@@ -5,7 +5,7 @@
 本页是 **ToneCore 的版本索引**。GitHub Releases 侧栏按发布时间排序，本页按语义化版本号排序，
 避免后补的旧版本让版本顺序看起来错乱。
 
-**当前稳定版：** [v0.26.0](https://github.com/deltrivx/tonecore/releases/tag/v0.26.0)
+**当前稳定版：** [v0.27.0](https://github.com/deltrivx/tonecore/releases/tag/v0.27.0)
 
 > 本文件由 `scripts/gen_releases.py` 从 `CHANGELOG.md` 生成，修改请改 CHANGELOG 后重新生成。
 
@@ -13,6 +13,7 @@
 
 | Version | 日期 | 更新摘要 | 发布说明 |
 |---|---|---|---|
+| [v0.27.0](https://github.com/deltrivx/tonecore/releases/tag/v0.27.0) | 2026-09-29 | 曲库支持列表/小图/大图三种显示方式；图标重新设计；主页本地音乐管理补齐详情、刮削、删除 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.27.0.md) |
 | [v0.26.0](https://github.com/deltrivx/tonecore/releases/tag/v0.26.0) | 2026-09-28 | 主页专管本地歌曲、曲库专管推荐与下载；取消主页专辑/歌手分类 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.26.0.md) |
 | [v0.25.0](https://github.com/deltrivx/tonecore/releases/tag/v0.25.0) | 2026-09-28 | 修锁屏媒体控件（作用域错误致 metadata 从未上报）；修移动端歌词显示区域；推荐移入曲库；取消主页最近入库 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.25.0.md) |
 | [v0.24.0](https://github.com/deltrivx/tonecore/releases/tag/v0.24.0) | 2026-09-28 | 修在线搜索专辑图（网易只返回 picId，需再取 song/detail 补图） | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.24.0.md) |
@@ -58,5 +59,5 @@
 
 ```bash
 docker pull ghcr.io/deltrivx/tonecore:latest   # 最新稳定版
-docker pull ghcr.io/deltrivx/tonecore:0.26.0    # 锁定版本
+docker pull ghcr.io/deltrivx/tonecore:0.27.0    # 锁定版本
 ```

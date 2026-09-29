@@ -62,7 +62,7 @@
     </div>
 
     <template v-else>
-      <!-- 汇总操作：一次把全部结果存进本地曲库 -->
+      <!-- 汇总操作 + 显示方式：一次把全部结果存进本地曲库 -->
       <div class="flex items-center gap-2 flex-wrap">
         <span class="text-xs text-fg-muted">共 <b class="tc-num text-accent">{{ total }}</b> 条结果</span>
         <button class="tc-btn text-xs" :disabled="busy" @click="askQuality('全部结果', (q) => saveAll(q))">
@@ -70,6 +70,16 @@
           <span>{{ busy === 'all' ? '入库中…' : '全部入库' }}</span>
         </button>
         <span class="text-[11px] text-fg-subtle">入库 = 下载到本地曲库（可在「主页」离线播放）</span>
+
+        <!-- 显示方式：列表 / 小图 / 大图（与主页、推荐共用同一偏好） -->
+        <div class="inline-flex rounded-md border border-line overflow-hidden shrink-0 bg-white/[0.02] ml-auto">
+          <button v-for="v in VIEWS" :key="v.id"
+            class="px-2.5 py-1.5 transition-colors"
+            :class="view === v.id ? 'bg-accent-weak text-accent' : 'text-fg-subtle hover:text-fg'"
+            :title="v.label" @click="setView(v.id)">
+            <Icon :name="v.icon" :size="15" />
+          </button>
+        </div>
       </div>
 
       <div v-for="(list, plat) in results" :key="plat" class="space-y-2">
@@ -82,7 +92,8 @@
           </button>
         </div>
 
-        <div class="tc-panel divide-y divide-line">
+        <!-- 列表 -->
+        <div v-if="view === 'list'" class="tc-panel divide-y divide-line">
           <div v-for="(s, i) in list" :key="s.id || i" class="tc-row group">
             <div class="tc-cover tc-cover-sm">
               <img v-if="s.coverUrl" :src="s.coverUrl" class="w-full h-full object-cover" loading="lazy" />
@@ -107,6 +118,43 @@
               <Icon v-else name="download" :size="13" />
               <span>{{ busy === key(plat, s) ? '…' : '入库' }}</span>
             </button>
+          </div>
+        </div>
+
+        <!-- 小图 / 大图 -->
+        <div v-else :class="view === 'grid-sm'
+          ? 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3'
+          : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4'">
+          <div v-for="(s, i) in list" :key="s.id || i" class="group">
+            <div class="relative tc-cover-art cursor-pointer" @click="play(list, i)">
+              <img v-if="s.coverUrl" :src="s.coverUrl" class="w-full h-full object-cover" loading="lazy" />
+              <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
+                <Icon name="music" :size="view === 'grid-sm' ? 22 : 34" />
+              </div>
+              <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
+                :title="`播放 ${s.title}`">
+                <span class="rounded-full bg-accent text-fg-inverse flex items-center justify-center"
+                  :class="view === 'grid-sm' ? 'w-8 h-8' : 'w-11 h-11'">
+                  <Icon name="play" :size="view === 'grid-sm' ? 14 : 18" />
+                </span>
+              </button>
+            </div>
+            <div class="mt-1 truncate"
+              :class="view === 'grid-sm' ? 'text-[11px] text-fg-muted' : 'text-sm text-fg'"
+              :title="s.title">{{ s.title }}</div>
+            <div class="text-[10px] text-fg-subtle truncate">{{ s.artist || '未知歌手' }}</div>
+
+            <!-- 网格视图下收纳操作：默认隐藏，hover 浮出，避免小卡片被按钮挤满 -->
+            <div class="flex gap-1 mt-1 opacity-60 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+              <button class="tc-icon-btn tc-icon-btn-sm" title="加入队列" @click.stop="add(s)">
+                <Icon name="plus" :size="13" />
+              </button>
+              <button class="tc-icon-btn tc-icon-btn-sm" :disabled="busy"
+                title="下载到本地曲库" @click.stop="askQuality(s.title, (q) => saveOne(s, q))">
+                <Icon v-if="busy === key(plat, s)" name="clock" :size="13" />
+                <Icon v-else name="download" :size="13" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -139,6 +187,23 @@ const TYPES = [
 ];
 
 const player = usePlayer();
+
+/** 显示方式：列表 / 小图 / 大图。
+ *  与主页、曲库推荐共用同一个 localStorage key：三处都是「封面墙 or 列表」
+ *  的同类内容，用户在一处调过，其余不必再调。 */
+const VIEWS = [
+  { id: 'list',    label: '列表', icon: 'list' },
+  { id: 'grid-sm', label: '小图', icon: 'gridSm' },
+  { id: 'grid-md', label: '大图', icon: 'grid' },
+];
+const VIEW_KEY = 'tc.home.view';
+const view = ref(localStorage.getItem(VIEW_KEY) || 'grid-md');
+
+function setView(v) {
+  view.value = v;
+  try { localStorage.setItem(VIEW_KEY, v); } catch { /* 隐私模式忽略 */ }
+}
+
 const results = ref({});
 const loading = ref(false);
 const message = ref(null);

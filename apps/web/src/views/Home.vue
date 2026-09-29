@@ -108,9 +108,18 @@
         </div>
         <span class="text-fg-subtle truncate hidden md:inline max-w-[160px] text-xs">{{ s.album }}</span>
         <span class="text-[11px] tc-num text-fg-subtle shrink-0">{{ fmtDur(s.duration) }}</span>
-        <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-0 group-hover:opacity-100"
+        <!-- 移动端没有 hover，所以小屏常驻显示、大屏才收进 hover -->
+        <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100"
           title="加入队列" @click.stop="appendSong(s)">
           <Icon name="plus" :size="14" />
+        </button>
+        <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100"
+          title="详情 / 管理" @click.stop="openDetail(s)">
+          <Icon name="info" :size="14" />
+        </button>
+        <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100 text-rose-400/70 hover:text-rose-400"
+          :disabled="deletingId===s.id" title="移入回收站" @click.stop="removeSong(s)">
+          <Icon name="trash" :size="14" />
         </button>
       </div>
     </div>
@@ -133,6 +142,11 @@
               :class="view === 'grid-sm' ? 'w-8 h-8' : 'w-11 h-11'">
               <Icon name="play" :size="view === 'grid-sm' ? 14 : 18" />
             </span>
+          </button>
+          <!-- 详情入口常驻：网格视图在移动端同样没有 hover 可用 -->
+          <button class="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white/90 flex items-center justify-center"
+            title="详情 / 管理" @click.stop="openDetail(s)">
+            <Icon name="info" :size="14" />
           </button>
         </div>
         <div class="mt-1.5 truncate" :class="view === 'grid-sm' ? 'text-[11px] text-fg-muted' : 'text-sm text-fg'"
@@ -219,6 +233,60 @@
         <span class="text-fg-muted">失败 <b class="text-fg-subtle tc-num">{{ backfillResult.failed }}</b></span>
       </div>
     </template>
+
+    <!-- ============ 歌曲详情 / 管理 ============
+         主页要能「查看并处理」本地歌曲，不只播放。
+         这一块 v0.26.0 重写曲库页时被我删掉且没迁过来，导致只能播、不能管，
+         本版补回并补齐（播放 / 加队列 / 重新刮削 / 移入回收站 / 查看路径与格式）。 -->
+    <div v-if="detail" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="detail = null">
+      <div class="tc-card w-full max-w-md p-5 space-y-4">
+        <div class="flex items-start gap-4">
+          <div class="w-20 h-20 shrink-0 tc-cover rounded-md">
+            <img v-if="detail.cover" :src="`/cover/${detail.cover}`" class="w-full h-full object-cover" />
+            <Icon v-else name="music" :size="26" class="text-fg-subtle" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-base text-fg truncate">{{ detail.title }}</div>
+            <div class="text-sm text-fg-muted truncate">{{ detail.artist || '未知歌手' }}</div>
+            <div class="text-xs text-fg-subtle truncate mt-1">专辑：{{ detail.album || '—' }}</div>
+            <div class="text-xs text-fg-subtle truncate">
+              时长：{{ fmtDur(detail.duration) }} · 格式：{{ ext(detail.filePath) || '—' }}
+            </div>
+          </div>
+          <button class="tc-icon-btn tc-icon-btn-sm shrink-0" @click="detail = null">
+            <Icon name="x" :size="15" />
+          </button>
+        </div>
+
+        <div class="text-[11px] font-mono text-fg-subtle truncate bg-surface-overlay rounded px-2 py-1.5">
+          路径：{{ detail.filePath }}
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button class="tc-btn-primary text-xs" @click="playDetail">
+            <Icon name="play" :size="14" />
+            <span>播放</span>
+          </button>
+          <button class="tc-btn text-xs" @click="appendDetail">
+            <Icon name="plus" :size="14" />
+            <span>加入队列</span>
+          </button>
+          <button class="tc-btn text-xs" :disabled="scraping" @click="scrapeDetail">
+            <Icon name="refresh" :size="14" />
+            <span>{{ scraping ? '刮削中…' : '重新刮削' }}</span>
+          </button>
+          <button class="tc-btn-danger text-xs" :disabled="deletingId===detail.id" @click="removeSong(detail)">
+            <Icon name="trash" :size="14" />
+            <span>移入回收站</span>
+          </button>
+        </div>
+
+        <div v-if="scrapeMsg" class="tc-alert" :class="scrapeMsg.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
+          <Icon :name="scrapeMsg.ok ? 'check' : 'alert'" :size="15" class="mt-0.5" />
+          <span>{{ scrapeMsg.text }}</span>
+        </div>
+      </div>
+    </div>
 
     <!-- 轻提示 -->
     <div v-if="message" class="tc-alert" :class="message.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
@@ -374,6 +442,55 @@ async function appendSong(s) {
   await player.append(toQueue([s]));
   message.value = { ok: true, text: `已加入队列：${s.title}` };
   setTimeout(() => { message.value = null; }, 1800);
+}
+
+// ---------- 单曲详情 / 管理 ----------
+const detail = ref(null);
+const scraping = ref(false);
+const scrapeMsg = ref(null);
+const deletingId = ref(null);
+
+function ext(p) { const m = /\.([^.]+)$/.exec(p || ''); return m ? m[1].toUpperCase() : ''; }
+
+function openDetail(s) { detail.value = s; scrapeMsg.value = null; }
+
+async function playDetail() {
+  const i = filtered.value.findIndex(x => x.id === detail.value.id);
+  await player.playList(toQueue(filtered.value), Math.max(0, i));
+}
+
+async function appendDetail() { if (detail.value) await appendSong(detail.value); }
+
+/** 重新刮削：重写标签 / 封面 / 歌词，元数据错了靠这个修回来 */
+async function scrapeDetail() {
+  if (!detail.value) return;
+  scraping.value = true; scrapeMsg.value = null;
+  try {
+    const r = await api.scrapeSong(detail.value.filePath);
+    if (r && r.ok) {
+      const parts = [];
+      if (r.tags?.written?.length) parts.push(`标签 ${r.tags.written.join('/')}`);
+      if (r.cover) parts.push('封面已写');
+      if (r.lyrics) parts.push('歌词已写');
+      scrapeMsg.value = { ok: true, text: parts.length ? `刮削完成：${parts.join('，')}` : '刮削完成（无需更新）' };
+      await Promise.all([load(), loadStats()]);
+      // 刮削后重新定位到新对象，否则弹窗里还是旧数据
+      const fresh = songs.value.find(s => s.id === detail.value.id);
+      if (fresh) detail.value = fresh;
+    } else scrapeMsg.value = { ok: false, text: (r && r.error) || '刮削失败' };
+  } catch (e) { scrapeMsg.value = { ok: false, text: '刮削失败：' + e }; }
+  finally { scraping.value = false; }
+}
+
+/** 移入回收站：不直接删文件，可在 /data/_trash 找回 */
+async function removeSong(song) {
+  if (!confirm(`将「${song.title}」移入回收站？\n文件不会立即删除，可在 /data/_trash 找回。`)) return;
+  deletingId.value = song.id; message.value = null;
+  try {
+    const r = await api.libraryDelete(song.filePath);
+    message.value = r.ok ? { ok: true, text: `已移入回收站：${song.title}` } : { ok: false, text: r.error || '删除失败' };
+    if (r.ok) { await Promise.all([load(), loadStats(), checkMissing()]); detail.value = null; }
+  } finally { deletingId.value = null; }
 }
 
 onMounted(() => { load(); loadHome(); loadStats(); checkMissing(); });

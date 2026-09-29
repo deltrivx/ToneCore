@@ -1,59 +1,90 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!--
-    ToneCore 图标 · 圆形 · 石墨灰底 + 青蓝声波
+    ToneCore 图标 · 正圆 · 深色石墨底 + 青蓝/紫色声波环
 
-    设计口径（重做）：
-      旧版是「圆角方块 + 天蓝渐变 + 白色音符」，在同类音乐容器里辨识度低，
-      方形在 Unraid 面板与浏览器标签页里也显得笨重。
+    设计口径（v0.27.0 再重做）：
+      v0.19.0 那版是「石墨灰圆 + 单音符 + 两道声波弧」，在 Unraid 面板
+      与浏览器标签页的小尺寸下辨识度偏低：缩到 48px 时音符与弧糊成一团，
+      看起来不像新图标。
 
-      新版改为**正圆**：
-        - 底：石墨灰径向渐变（#565D66 → #22262C），有体积感，
-          也不与其它彩色品牌撞色；
-        - 顶部一道极淡高光，制造抛光质感；
-        - 中心音符用主色青蓝（#4FC3F7→#35A9E8），与灰底形成冷暖对比；
-        - 左右各一道声波弧（#2E9BE8），呼应「音源 / 声波」语义。
+      新版改动：
+        - 底：深色径向渐变（#2E3846 → #0E1218），比旧版更沉，
+          在深浅两种 Unraid 主题下都不发灰；
+        - 声波：由「两道弧」改为三层同心弧环（青蓝 → 紫的渐变），
+          左右严格镜像（各以 0° / 180° 为中心 ±35°），
+          语义是「声音由内向外扩散」，小尺寸下也有清晰的层次轮廓；
+        - 中心保留发光音符（青蓝竖向渐变），仍是第一眼识别点。
 
-      构图：音符与声波作为整体居中于圆心 (512, 512)。
+      注意：assets/icon.svg 与 assets/icon.png 必须同步，
+      README / WebUI 标签页 / 登录页 / 设置页 / 侧边栏 / Unraid 模板
+      均引用同一套图标。
   -->
 
   <defs>
-    <radialGradient id="tcBase" cx="35%" cy="28%" r="85%">
-      <stop offset="0%"   stop-color="#565D66"/>
-      <stop offset="45%"  stop-color="#3C424A"/>
-      <stop offset="100%" stop-color="#22262C"/>
+    <radialGradient id="tcBase" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#2E3846"/>
+      <stop offset="45%"  stop-color="#1C222C"/>
+      <stop offset="100%" stop-color="#0E1218"/>
     </radialGradient>
 
-    <linearGradient id="tcGloss" x1="0" y1="0" x2="0.35" y2="1">
-      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.22"/>
-      <stop offset="55%"  stop-color="#FFFFFF" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    <linearGradient id="tcRing1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#3AA0F5"/>
+      <stop offset="50%"  stop-color="#5FE6FF"/>
+      <stop offset="100%" stop-color="#3AA0F5"/>
+    </linearGradient>
+    <linearGradient id="tcRing2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#6C6BF2"/>
+      <stop offset="50%"  stop-color="#49C9FA"/>
+      <stop offset="100%" stop-color="#6C6BF2"/>
+    </linearGradient>
+    <linearGradient id="tcRing3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#8A5CF0"/>
+      <stop offset="50%"  stop-color="#3FB4EE"/>
+      <stop offset="100%" stop-color="#8A5CF0"/>
     </linearGradient>
 
     <linearGradient id="tcNote" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#7FD8FB"/>
-      <stop offset="100%" stop-color="#35A9E8"/>
+      <stop offset="0%"   stop-color="#8FEEFF"/>
+      <stop offset="100%" stop-color="#2E9BE8"/>
     </linearGradient>
   </defs>
 
+  <!-- 底 -->
   <circle cx="512" cy="512" r="512" fill="url(#tcBase)"/>
-  <circle cx="512" cy="512" r="512" fill="url(#tcGloss)"/>
-  <circle cx="512" cy="512" r="502" fill="none"
-          stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="6"/>
+  <circle cx="512" cy="512" r="486" fill="none"
+          stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="5"/>
 
-  <!-- 声波：左右各一道 -->
-  <path d="M 300 430 A 158 158 0 0 0 300 594"
-        fill="none" stroke="#2E9BE8" stroke-width="54" stroke-linecap="round" opacity="0.85"/>
-  <path d="M 724 430 A 158 158 0 0 1 724 594"
-        fill="none" stroke="#2E9BE8" stroke-width="54" stroke-linecap="round" opacity="0.85"/>
+  <!--
+    声波环：左右各一段 ±35° 的弧，严格镜像对称。
+
+    ⚠️ 端点坐标必须落在对应半径的圆上，否则 SVG 会自动缩放弧半径，
+    渲染出来与 PNG 对不上（此前手写坐标偏差 12–26px，弧会变形）。
+    这里按 r 与角度算：左弧 145°→215°、右弧 -35°→35°，sweep=1（顺时针）。
+  -->
+  <g fill="none" stroke-linecap="round">
+    <!-- 内环 r=279 -->
+    <g stroke="url(#tcRing1)" stroke-width="46" opacity="0.95">
+      <path d="M 283.5 672.0 A 279 279 0 0 1 283.5 352.0"/>
+      <path d="M 740.5 352.0 A 279 279 0 0 1 740.5 672.0"/>
+    </g>
+    <!-- 中环 r=338 -->
+    <g stroke="url(#tcRing2)" stroke-width="38" opacity="0.62">
+      <path d="M 235.1 705.9 A 338 338 0 0 1 235.1 318.1"/>
+      <path d="M 788.9 318.1 A 338 338 0 0 1 788.9 705.9"/>
+    </g>
+    <!-- 外环 r=397 -->
+    <g stroke="url(#tcRing3)" stroke-width="30" opacity="0.38">
+      <path d="M 186.8 739.7 A 397 397 0 0 1 186.8 284.3"/>
+      <path d="M 837.2 284.3 A 397 397 0 0 1 837.2 739.7"/>
+    </g>
+  </g>
 
   <!-- 音符：符头 + 符干 + 符尾 -->
-  <g transform="translate(512 512) scale(1.04) translate(-512 -512) translate(-34 0)">
-    <ellipse cx="470" cy="648" rx="112" ry="84"
-             fill="url(#tcNote)" transform="rotate(-20 470 648)"/>
-    <rect x="542" y="318" width="84" height="342" rx="8" fill="url(#tcNote)"/>
-    <path d="M 626 318
-             C 716 332 758 402 740 480
-             C 728 428 690 392 626 372 Z"
+  <g>
+    <rect x="556" y="300" width="84" height="364" rx="6" fill="url(#tcNote)"/>
+    <path d="M 626 300 C 742 330 770 428 716 486 C 700 410 626 380 626 380 Z"
           fill="url(#tcNote)"/>
+    <ellipse cx="470" cy="660" rx="112" ry="84"
+             fill="url(#tcNote)" transform="rotate(-20 470 660)"/>
   </g>
 </svg>
