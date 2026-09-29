@@ -244,12 +244,16 @@ export class Library {
   }
 
   /**
-   * 删除曲库条目：把音频与同名 .lrc 移入 `<dataDir>/_trash/`，并移除索引。
+   * 删除曲库条目。
    *
-   * 为什么是移入回收站而不是硬删：这是用户自己的音乐文件，
-   * 一次误点就永久丢失代价太大。回收站里按月归档，想恢复随时能拿回去。
+   * @param relPath 曲库相对路径
+   * @param hard    true = 彻底删除（直接 unlink，不可恢复）；
+   *                false = 移入 `<dataDir>/_trash/`（默认，可回收）
+   *
+   * 两种模式共用同一套前置校验（越界 / 不存在 / 索引清理），
+   * 只有最终「怎么处理文件」这一步不同，避免两处逻辑各自漂移。
    */
-  remove(relPath: string): { ok: boolean; error?: string; moved?: string[] } {
+  remove(relPath: string, hard = false): { ok: boolean; error?: string; moved?: string[]; deleted?: string[] } {
     const cfg = loadConfig();
     const root = path.resolve(cfg.musicDir);
     const abs = path.resolve(root, relPath);
@@ -265,15 +269,28 @@ export class Library {
     }
 
     try {
+      const targets = [abs];
+      // 同名歌词文件一并处理
+      const lrc = abs.replace(/\.[^.]+$/, '') + '.lrc';
+      if (fs.existsSync(lrc)) targets.push(lrc);
+
+      // ---- 硬删：直接从磁盘删掉，不进回收站 ----
+      if (hard) {
+        const deleted: string[] = [];
+        for (const t of targets) {
+          fs.unlinkSync(t);
+          deleted.push(t);
+        }
+        this.db.prepare('DELETE FROM songs WHERE file_path = ?').run(relPath);
+        logger.warn({ file: relPath, deleted: deleted.length }, '曲库条目已彻底删除（不可恢复）');
+        return { ok: true, deleted };
+      }
+
+      // ---- 软删：移入回收站，按月归档 ----
       const trash = path.join(cfg.dataDir, '_trash', new Date().toISOString().slice(0, 7));
       fs.mkdirSync(trash, { recursive: true });
 
       const moved: string[] = [];
-      const targets = [abs];
-      // 同名歌词文件一并回收
-      const lrc = abs.replace(/\.[^.]+$/, '') + '.lrc';
-      if (fs.existsSync(lrc)) targets.push(lrc);
-
       for (const t of targets) {
         const dest = path.join(trash, path.basename(t));
         // 同名冲突时加时间戳后缀，避免覆盖回收站里已有的文件

@@ -108,19 +108,13 @@
         </div>
         <span class="text-fg-subtle truncate hidden md:inline max-w-[160px] text-xs">{{ s.album }}</span>
         <span class="text-[11px] tc-num text-fg-subtle shrink-0">{{ fmtDur(s.duration) }}</span>
-        <!-- 移动端没有 hover，所以小屏常驻显示、大屏才收进 hover -->
+        <!-- 加入队列是高频操作，留在行内；其余功能收进「更多」菜单，
+             以后新增功能只要往 rowActions() 里加一项，不用再挤布局。 -->
         <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100"
           title="加入队列" @click.stop="appendSong(s)">
           <Icon name="plus" :size="14" />
         </button>
-        <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100"
-          title="详情 / 管理" @click.stop="openDetail(s)">
-          <Icon name="info" :size="14" />
-        </button>
-        <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100 text-rose-400/70 hover:text-rose-400"
-          :disabled="deletingId===s.id" title="移入回收站" @click.stop="removeSong(s)">
-          <Icon name="trash" :size="14" />
-        </button>
+        <RowActions :items="rowActions(s)" :busy="deletingId===s.id" />
       </div>
     </div>
 
@@ -237,7 +231,7 @@
     <!-- ============ 歌曲详情 / 管理 ============
          主页要能「查看并处理」本地歌曲，不只播放。
          这一块 v0.26.0 重写曲库页时被我删掉且没迁过来，导致只能播、不能管，
-         本版补回并补齐（播放 / 加队列 / 重新刮削 / 移入回收站 / 查看路径与格式）。 -->
+         本版补回并补齐（播放 / 加队列 / 重新刮削 / 彻底删除 / 查看路径与格式）。 -->
     <div v-if="detail" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="detail = null">
       <div class="tc-card w-full max-w-md p-5 space-y-4">
         <div class="flex items-start gap-4">
@@ -275,9 +269,11 @@
             <Icon name="refresh" :size="14" />
             <span>{{ scraping ? '刮削中…' : '重新刮削' }}</span>
           </button>
+          <!-- ⚠️ 文案必须与行为一致：removeSong 现在是彻底删除，
+               若仍写「移入回收站」会让用户以为还能找回 -->
           <button class="tc-btn-danger text-xs" :disabled="deletingId===detail.id" @click="removeSong(detail)">
             <Icon name="trash" :size="14" />
-            <span>移入回收站</span>
+            <span>彻底删除</span>
           </button>
         </div>
 
@@ -301,6 +297,7 @@ import { ref, computed, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
 import { usePlayer, fmtTime } from '../composables/usePlayer.js';
 import Icon from '../components/Icon.vue';
+import RowActions from '../components/RowActions.vue';
 
 const player = usePlayer();
 const cur = computed(() => player.current.value);
@@ -482,14 +479,61 @@ async function scrapeDetail() {
   finally { scraping.value = false; }
 }
 
-/** 移入回收站：不直接删文件，可在 /data/_trash 找回 */
+/**
+ * 行级重新刮削（菜单里用）。
+ * 与 scrapeDetail 的区别：这个直接作用于传入的曲目，不依赖弹窗是否打开。
+ * 结果走页面级 message（行级没有 scrapeMsg 可显示）。
+ */
+async function scrapeSong(song) {
+  scraping.value = true; message.value = null;
+  try {
+    const r = await api.scrapeSong(song.filePath);
+    if (r && r.ok) {
+      const parts = [];
+      if (r.tags?.written?.length) parts.push(`标签 ${r.tags.written.join('/')}`);
+      if (r.cover) parts.push('封面已写');
+      if (r.lyrics) parts.push('歌词已写');
+      message.value = { ok: true, text: parts.length ? `刮削完成：${parts.join('，')}` : '刮削完成（无需更新）' };
+      await Promise.all([load(), loadStats()]);
+    } else {
+      message.value = { ok: false, text: (r && r.error) || '刮削失败' };
+    }
+  } catch (e) { message.value = { ok: false, text: '刮削失败：' + e }; }
+  finally { scraping.value = false; }
+}
+
+/**
+ * 行级「更多操作」菜单项。
+ * 以后新增功能：在这里加一项即可，列表行布局不用再动。
+ */
+function rowActions(s) {
+  return [
+    { label: '查看详情', icon: 'info', run: () => openDetail(s) },
+    { label: '加入队列', icon: 'plus', run: () => appendSong(s) },
+    { label: '重新刮削', icon: 'refresh', run: () => scrapeSong(s) },
+    { label: '彻底删除', icon: 'trash', danger: true, disabled: deletingId.value === s.id, run: () => removeSong(s) },
+  ];
+}
+
+/**
+ * 彻底删除（按用户要求：不走回收站）。
+ *
+ * ⚠️ 这是不可逆的真删盘操作，所以保留二次确认 ——
+ * 一次误点永久丢失代价太大，确认框的成本远低于丢文件的代价。
+ */
 async function removeSong(song) {
-  if (!confirm(`将「${song.title}」移入回收站？\n文件不会立即删除，可在 /data/_trash 找回。`)) return;
+  if (!confirm(
+    `彻底删除「${song.title}」？\n` +
+    `\n将直接从磁盘删除音频文件（及同名 .lrc），不可恢复。\n` +
+    `确定要继续吗？`
+  )) return;
   deletingId.value = song.id; message.value = null;
   try {
-    const r = await api.libraryDelete(song.filePath);
-    message.value = r.ok ? { ok: true, text: `已移入回收站：${song.title}` } : { ok: false, text: r.error || '删除失败' };
-    if (r.ok) { await Promise.all([load(), loadStats(), checkMissing()]); detail.value = null; }
+    const r = await api.libraryDelete(song.filePath, true);
+    message.value = r.ok
+      ? { ok: true, text: `已彻底删除：${song.title}` }
+      : { ok: false, text: r.error || '删除失败' };
+    if (r.ok) { await Promise.all([load(), loadStats(), checkMissing()]); if (detail.value?.id === song.id) detail.value = null; }
   } finally { deletingId.value = null; }
 }
 

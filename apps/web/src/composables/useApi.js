@@ -51,7 +51,8 @@ export const api = {
   library:     (limit = 50, offset = 0, keyword = '') =>
     req(`/api/library?limit=${limit}&offset=${offset}&keyword=${encodeURIComponent(keyword)}`),
   libraryStats: () => req('/api/library/stats'),
-  libraryDelete: (filePath) => req('/api/library/delete', { method: 'POST', body: { filePath } }),
+  /** hard=true 为彻底删除（不可恢复）；默认移入回收站 */
+  libraryDelete: (filePath, hard = false) => req('/api/library/delete', { method: 'POST', body: { filePath, hard } }),
   scan:        () => req('/api/library/scan', { method: 'POST' }),
   libraryMissing: () => req('/api/library/missing'),
   libraryPrune:  () => req('/api/library/prune', { method: 'POST' }),

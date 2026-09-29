@@ -102,12 +102,14 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     return { ...r, message: r.removed ? `已清理 ${r.removed} 首失效曲目` : '没有失效曲目' };
   });
 
-  // 删除曲库条目（音频与同名 .lrc 一并移入回收站，不做硬删）
+  // 删除曲库条目。
+  // hard=true → 彻底删除（直接 unlink，不可恢复）；默认移入回收站。
+  // ⚠️ 硬删不可逆，前端必须二次确认后才允许带 hard。
   app.post('/api/library/delete', async (req) => {
     const b = (req.body || {}) as any;
     const filePath = String(b.filePath || '');
     if (!filePath) return { ok: false, error: '缺少 filePath' };
-    return d.lib.remove(filePath);
+    return d.lib.remove(filePath, b.hard === true);
   });
 
   // 曲库统计（供界面概览）
