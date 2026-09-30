@@ -137,6 +137,40 @@ export class Library {
     return done;
   }
 
+  /**
+   * 回填音频真实时长（秒）。
+   *
+   * 为什么需要：扫描入库时 duration 写的是 NULL（那时只顾着快速建索引），
+   * 于是界面时长一直显示 --:--，在线歌词也没法按「时间轴是否吻合」挑版本。
+   *
+   * 只处理 duration 为 NULL 的行；解析失败保持 NULL 下轮再试
+   * （不写 0 —— 否则会被当成有效值，永远不再重试）。
+   */
+  async backfillDurations(limit = 5000): Promise<number> {
+    const cfg = loadConfig();
+    const rows = this.db
+      .prepare('SELECT id, file_path FROM songs WHERE duration IS NULL LIMIT ?')
+      .all(limit) as any[];
+    if (rows.length === 0) return 0;
+
+    let done = 0;
+    for (const r of rows) {
+      const abs = path.resolve(cfg.musicDir, r.file_path);
+      try {
+        if (!fs.existsSync(abs)) continue;
+        const md = await parseFile(abs);
+        const d = md?.format?.duration;
+        if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) continue;
+        this.db.prepare('UPDATE songs SET duration = ? WHERE id = ?').run(d, r.id);
+        done++;
+      } catch {
+        // 解析失败：保持 NULL，下轮扫描再试
+      }
+    }
+    if (done > 0) logger.info({ filled: done }, '音频时长回填完成');
+    return done;
+  }
+
   /** 扫描音乐目录，增量入库 */
   async scan(): Promise<{ added: number; total: number }> {
     const cfg = loadConfig();
@@ -183,6 +217,10 @@ export class Library {
     // 放在扫描之后统一做，避免在 walk 里同步读大文件拖慢扫描。
     // 这一步是异步的（要 await parseFile），所以 scan 本身也是 async。
     await this.extractCovers();
+    // 回填时长：扫描入库时只写了 NULL，这里补齐真实时长。
+    // 有了时长，界面时长才不会一直显示 --:--，
+    // 在线歌词也才能按「时间轴是否吻合」挑版本（避免匹配到翻唱版）。
+    await this.backfillDurations();
     const total = (this.db.prepare('SELECT COUNT(*) AS c FROM songs').get() as any).c;
     logger.info({ added, total }, '曲库扫描完成');
     return { added, total };

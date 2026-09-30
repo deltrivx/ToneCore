@@ -143,7 +143,11 @@ export class LyricsService {
     // ---- 3) 在线歌词接口 ----
     try {
       const { fetchLyrics } = await import('../scraper/lyrics.js');
-      const r = await fetchLyrics(title, artist, platform, songId);
+      // 先拿本地音频真实时长：用于在多个候选里挑时间轴吻合的版本。
+      // 没有它就会「取第一个有歌词的候选」，而那很可能是翻唱版
+      // —— 正是「歌词提前跑完」的根因。
+      const targetDuration = await this.probeDuration(relPath);
+      const r = await fetchLyrics(title, artist, platform, songId, targetDuration ?? undefined);
       if (r?.lrc) {
         return { lrc: r.lrc, lines: parseLrc(r.lrc), instrumental: isInstrumental(r.lrc), source: 'online' };
       }
@@ -209,5 +213,29 @@ export class LyricsService {
   /** 是否为「真」LRC：存在至少一行标准时间标签 */
   private looksLikeLrc(text: string): boolean {
     return /\[\d{1,3}:\d{1,2}(?:[:.]\d{1,3})?\]/.test(text);
+  }
+
+  /**
+   * 读音频真实时长（秒）；读不到返回 null。
+   *
+   * 用于给在线歌词挑版本：歌词末行时间应当与音频长度吻合，
+   * 否则很可能匹配到了翻唱/剪辑版（实测跑偏样本全来自 online 来源）。
+   */
+  private async probeDuration(relPath?: string): Promise<number | null> {
+    if (!relPath) return null;
+    const cfg = loadConfig();
+    const root = path.resolve(cfg.musicDir);
+    const abs = path.resolve(root, relPath);
+    // 防目录穿越
+    if (abs !== root && !abs.startsWith(root + path.sep)) return null;
+    try {
+      if (!fs.existsSync(abs)) return null;
+      const { parseFile } = await import('music-metadata');
+      const md = await parseFile(abs);
+      const d = md?.format?.duration;
+      return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : null;
+    } catch {
+      return null;
+    }
   }
 }

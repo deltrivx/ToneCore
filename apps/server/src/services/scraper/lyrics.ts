@@ -71,12 +71,22 @@ async function getText(url: string, timeout = 8000): Promise<string | null> {
 /**
  * 抓取歌词。
  *
+ * @param targetDuration 本地音频的真实时长（秒）。给了就用来给候选歌词打分：
+ *   歌词时间轴应当与音频长度吻合，末行时间越接近时长越可信。
+ *   ⚠️ 这是解决「在线匹配到翻唱版 → 时间轴对不上」的关键 ——
+ *   实测跑偏的样本全部来自 online 来源，末行/时长仅 0.83。
+ *   不传则退化为「取第一个有歌词的候选」（兼容旧行为）。
+ *
  * 多源依次尝试，任一命中即返回。全部失败返回 null，
  * 上层静默跳过（没有歌词不该让落库失败）。
  */
-export async function fetchLyrics(title: string, artist?: string, platform?: string, songId?: string): Promise<LyricsResult | null> {
-  const q = encodeURIComponent(`${title} ${artist ?? ''}`.trim());
-
+export async function fetchLyrics(
+  title: string,
+  artist?: string,
+  platform?: string,
+  songId?: string,
+  targetDuration?: number,
+): Promise<LyricsResult | null> {
   // ---- 1) 酷我：有关联 ID 时可用其歌词接口，最准 ----
   if (platform === 'kw' && songId) {
     const rid = String(songId).replace(/^MUSIC_/, '');
@@ -89,12 +99,53 @@ export async function fetchLyrics(title: string, artist?: string, platform?: str
     }
   }
 
-  // ---- 2) 网易云：候选按分排序，逐个试歌词，取**第一个真有歌词的** ----
+  // ---- 2) 网易云 ----
   //
-  // 为什么不是「取最高分那首的歌词」：正版曲目在网易常因版权下架，搜索结果
-  // 只剩翻唱；而翻唱版本**多数不带歌词**（实测：稻香/本草纲目 前 3 个候选
-  // 歌词全为空，第 4 个才有）。只认最高分就会得出「这首歌没歌词」的假结论。
+  // 为什么遍历候选而不是只取最高分：正版曲目在网易常因版权下架，搜索结果
+  // 只剩翻唱；翻唱版本多数不带歌词（实测：稻香/本草纲目前 3 个候选歌词全空，
+  // 第 4 个才有）。只认最高分会得出「这首歌没歌词」的假结论。
+  //
+  // 为什么收集全部候选再挑：不同版本的歌词时间轴长度不同。
+  // 若给了真实时长，就选末行时间最接近的那个版本，
+  // 而不是第一个碰巧有歌词的（那很可能是翻唱版）。
   const cands = await searchWyList(title, artist, 8);
+
+  if (typeof targetDuration === 'number' && targetDuration > 0) {
+    const scored: Array<{ lrc: string; diff: number; last: number }> = [];
+    for (const c of cands) {
+      const lrc = await lyricFromWy(c.id);
+      if (!lrc) continue;
+      const times = lastLyricTime(lrc);
+      if (times === null) continue;
+      scored.push({ lrc, diff: Math.abs(times - targetDuration), last: times });
+    }
+
+    if (scored.length) {
+      scored.sort((a, b) => a.diff - b.diff);
+      const best = scored[0];
+      // 偏差过大（超过 25%）说明这批候选里没有匹配的版本，宁可不用，
+      // 也不要把明显错位的歌词放上去。
+      const ratio = best.last / targetDuration;
+      if (ratio < 0.75 || ratio > 1.35) {
+        logger.debug(
+          { title, targetDuration, bestLast: best.last, ratio: +ratio.toFixed(2) },
+          '在线歌词时间轴与音频长度偏差过大，已放弃',
+        );
+        return null;
+      }
+
+      return {
+        lrc: best.lrc,
+        source: 'wy',
+        plain: !/\[\d{2}:\d{2}/.test(best.lrc),
+      };
+    }
+
+    logger.debug({ title, candidates: cands.length }, '候选均无有效时间轴歌词');
+    return null;
+  }
+
+  // 未给时长：保持原行为（第一个有歌词的）
   for (const c of cands) {
     const lrc = await lyricFromWy(c.id);
     if (lrc) return { lrc, source: 'wy', plain: !/\[\d{2}:\d{2}/.test(lrc) };
@@ -102,6 +153,26 @@ export async function fetchLyrics(title: string, artist?: string, platform?: str
 
   logger.debug({ title, artist, candidates: cands.length }, '未能获取歌词');
   return null;
+}
+
+/**
+ * 取 LRC 最后一行的时间（秒）；无有效时间轴返回 null。
+ *
+ * 用于判断歌词时间轴是否与音频长度吻合 —— 翻唱/剪辑版的长度通常明显不同。
+ */
+function lastLyricTime(lrc: string): number | null {
+  let last: number | null = null;
+  for (const raw of lrc.split(/\r?\n/)) {
+    const m = /\[(\d{1,3}):(\d{1,2})(?:[:.](\d{1,3}))?\]/.exec(raw);
+    if (!m) continue;
+    const min = Number(m[1]);
+    const sec = Number(m[2]);
+    const fracRaw = m[3] ?? '';
+    const frac = fracRaw ? Number(fracRaw) / Math.pow(10, fracRaw.length) : 0;
+    const t = min * 60 + sec + frac;
+    if (last === null || t > last) last = t;
+  }
+  return last;
 }
 
 /**
