@@ -73,6 +73,8 @@ export const api = {
     req(`/api/search?keyword=${encodeURIComponent(kw)}&type=${encodeURIComponent(type)}`),
   // quality 省略时服务端用全局默认音质；入库时由用户选择传入
   play:        (kw, artist, quality) => req('/api/play', { method: 'POST', body: { keyword: kw, artist, quality } }),
+  /** 按精确曲目 ID 入库（不走搜索打分，保住原唱，避免入库到翻唱版） */
+  fetchById:   (song, quality) => req('/api/fetch-by-id', { method: 'POST', body: { ...song, quality } }),
   downloads:   () => req('/api/downloads'),
   platforms:   () => req('/api/platforms'),
 

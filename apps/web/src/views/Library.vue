@@ -69,6 +69,13 @@
               </div>
             </div>
             <span class="text-fg-subtle truncate hidden md:inline max-w-[160px] text-xs">{{ s.album }}</span>
+            <!-- 播放是高频操作，留在行内（hover 浮出）；其余收进「更多」菜单。
+                 以后新增功能只要往 rowActions() 里加一项，不用再挤布局。 -->
+            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100"
+              title="播放试听" @click.stop="playRecommend(b, i)">
+              <Icon name="play" :size="14" />
+            </button>
+            <RowActions :items="rowActions(s)" :busy="busyId === s.id" @click.stop />
           </div>
         </div>
 
@@ -95,10 +102,54 @@
               :class="view === 'grid-sm' ? 'text-[11px] text-fg-muted' : 'text-sm text-fg'"
               :title="s.title">{{ s.title }}</div>
             <div class="text-[10px] text-fg-subtle truncate">{{ s.artist }}</div>
+            <!-- 网格视图下收纳操作：默认隐藏，hover 浮出，避免小卡片被按钮挤满 -->
+            <div class="flex items-center gap-1 mt-1 opacity-60 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+              <button class="tc-icon-btn tc-icon-btn-sm" title="加入队列" @click.stop="addToQueue(s)">
+                <Icon name="plus" :size="13" />
+              </button>
+              <button class="tc-icon-btn tc-icon-btn-sm" :disabled="busyId === s.id"
+                title="下载到本地曲库" @click.stop="saveOne(s)">
+                <Icon v-if="busyId === s.id" name="clock" :size="13" />
+                <Icon v-else name="download" :size="13" />
+              </button>
+            </div>
           </div>
         </div>
       </section>
     </template>
+
+    <!-- ============ 入库格式选择 ============
+         按精确曲目 ID 入库：推荐位每首都自带 platform + id，
+         直接按 ID 取链才能保住原唱（若按歌名重搜，很可能入库到翻唱版）。 -->
+    <div v-if="pickQuality.open"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4"
+      @click.self="closeQuality">
+      <div class="tc-card w-full max-w-[380px] p-4 space-y-3">
+        <div class="text-sm font-medium text-fg">选择入库音质</div>
+        <div class="text-[11px] text-fg-subtle break-words">目标：{{ pickQuality.title }}</div>
+        <div class="space-y-1.5">
+          <label v-for="q in QUALITIES" :key="q.id"
+            class="flex items-center gap-3 rounded-md border px-3 py-2.5 cursor-pointer transition-colors"
+            :class="pickQuality.quality === q.id
+              ? 'border-accent/60 bg-accent-weak'
+              : 'border-line hover:bg-white/[0.04]'">
+            <input type="radio" name="tc-lib-quality" :value="q.id"
+              v-model="pickQuality.quality" class="accent-accent" />
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm text-fg">{{ q.label }}</span>
+              <span class="block text-[11px] text-fg-subtle">{{ q.hint }}</span>
+            </span>
+          </label>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button class="tc-btn-primary flex-1" @click="confirmQuality">开始入库</button>
+          <button class="tc-btn" @click="closeQuality">取消</button>
+        </div>
+        <div class="text-[10px] text-fg-subtle">
+          入库后到「主页」查看；无 VIP 时无损可能被上游降级为 320k。
+        </div>
+      </div>
+    </div>
 
     <!-- 轻提示 -->
     <div v-if="message" class="tc-alert" :class="message.ok ? 'tc-alert-ok' : 'tc-alert-warn'">
@@ -113,6 +164,7 @@ import { ref, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
 import { usePlayer } from '../composables/usePlayer.js';
 import OnlineSearch from '../components/OnlineSearch.vue';
+import RowActions from '../components/RowActions.vue';
 import Icon from '../components/Icon.vue';
 
 const player = usePlayer();
@@ -140,6 +192,8 @@ const onlineSearching = ref(false);
 /** 在线推荐（榜单）。拿不到就留空，不影响云端搜索 */
 const boards = ref([]);
 const message = ref(null);
+/** 正在入库的曲目 id（用于按钮转圈与禁用，避免重复点） */
+const busyId = ref(null);
 
 async function loadRecommend() {
   try {
@@ -164,6 +218,90 @@ async function doOnlineSearch() {
   onlineSearching.value = true; onlineKw.value = k;
   await new Promise(r => setTimeout(r, 30));
   onlineSearching.value = false;
+}
+
+/** 加入队列（高频操作，留在行内） */
+async function addToQueue(s) {
+  await player.append([s]);
+  message.value = { ok: true, text: `已添加到队列：${s.title}` };
+}
+
+/**
+ * 入库音质。
+ *
+ * ⚠️ 值必须与服务端 QUALITY_WHITELIST 一致（master/flac24bit/flac/320k/128k），
+ * 否则 normalizeQuality 认不出来，会静默回落到全局默认 —— 表现为「选了没生效」。
+ */
+const QUALITIES = [
+  { id: 'flac',      label: '无损 FLAC', hint: '推荐 · 体积较大' },
+  { id: 'flac24bit', label: '母带 24bit', hint: 'Hi-Res · 体积最大' },
+  { id: '320k',      label: '高品质 320k', hint: '体积适中' },
+  { id: '128k',      label: '标准 128k',  hint: '体积最小' },
+];
+const pickQuality = ref({ open: false, quality: 'flac', title: '', song: null });
+
+function askQuality(s) {
+  pickQuality.value = { open: true, quality: 'flac', title: s.title, song: s };
+}
+function closeQuality() {
+  pickQuality.value = { open: false, quality: pickQuality.value.quality, title: '', song: null };
+}
+
+async function confirmQuality() {
+  const { quality, song } = pickQuality.value;
+  closeQuality();
+  if (song) await saveOne(song, quality);
+}
+
+/**
+ * 单曲入库：按**精确曲目 ID** 走 /api/fetch-by-id。
+ *
+ * 为什么不用 /api/play（keyword + artist）：推荐位每首都自带 platform + id，
+ * 若退化成「按歌名重新搜一遍」，很可能入库到翻唱版 —— 与「歌词提前跑完」
+ * 是同一个坑。按 ID 取链才能保住原唱。
+ */
+async function saveOne(s, quality = 'flac') {
+  busyId.value = s.id; message.value = null;
+  try {
+    const r = await api.fetchById({
+      platform: s.platform || 'wy',
+      songId: s.id,
+      title: s.title,
+      artist: s.artist,
+      album: s.album,
+      coverUrl: s.coverUrl,
+      duration: s.duration,
+    }, quality);
+    message.value = r && r.ok
+      ? { ok: true, text: `已加入下载队列（${quality}）：${s.title}` }
+      : { ok: false, text: `入库失败：${(r && r.error) || '取链失败'}` };
+  } catch (e) {
+    message.value = { ok: false, text: '入库失败：' + e };
+  } finally { busyId.value = null; }
+}
+
+/**
+ * 行级「更多操作」菜单项。
+ * 以后新增功能：在这里加一项即可，列表行布局不用再动。
+ */
+function rowActions(s) {
+  return [
+    { label: '播放试听', icon: 'play', run: () => playRecommend({ items: [s] }, 0) },
+    { label: '加入队列', icon: 'plus', run: () => addToQueue(s) },
+    { label: '下载入库', icon: 'download', run: () => askQuality(s) },
+    { label: '复制曲目信息', icon: 'info', run: () => copyInfo(s) },
+  ];
+}
+
+/** 复制「歌名 - 歌手」，便于去别处搜索 */
+async function copyInfo(s) {
+  const text = `${s.title}${s.artist ? ' - ' + s.artist : ''}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    message.value = { ok: true, text: `已复制：${text}` };
+  } catch {
+    message.value = { ok: false, text: '复制失败（浏览器可能限制了剪贴板权限）' };
+  }
 }
 
 onMounted(() => { loadRecommend(); });

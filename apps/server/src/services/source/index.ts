@@ -4,6 +4,7 @@ import { SourceLoader } from './loader.js';
 import { SearchEngine } from '../search/index.js';
 import { RETIRED_PLATFORMS } from '../search/index.js';
 import { fetchKwUrl } from '../search/platforms/kw-url.js';
+import { fetchWyUrl } from '../search/platforms/wy-url.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Song, SongUrl } from './types.js';
@@ -366,9 +367,15 @@ export class SourceEngine {
    * 策略：先用「自研直连」（不依赖第三方，最稳），失败再回退音源脚本。
    */
   async getUrl(song: Song, quality: string): Promise<SongUrl | null> {
-    // 1) 自研直连（目前支持酷我）
+    // 1) 自研直连（网易 / 酷我）
     if (song.platform === 'kw') {
       const builtin = await fetchKwUrl(song, quality);
+      if (builtin) return builtin;
+    }
+    // 网易云：自研取链。为什么必须有 —— 它是搜索质量最好的主力平台，
+    // 若只靠第三方脚本，脚本大面积失效时主力平台就没了。
+    if (song.platform === 'wy') {
+      const builtin = await fetchWyUrl(song, quality);
       if (builtin) return builtin;
     }
     // 2) 回退：洛雪音源脚本（多脚本并行）

@@ -293,14 +293,29 @@ async function confirmQuality() {
   if (typeof run === 'function') await run(quality);
 }
 
-/** 单曲入库：/api/play 会取链并按指定音质落盘到本地曲库 */
+/**
+ * 单曲入库：按**精确曲目 ID** 走 /api/fetch-by-id。
+ *
+ * 为什么不用 /api/play（keyword + artist）：搜索结果每首都自带 platform + id，
+ * 若退化成「按歌名重新搜一遍」，很可能入库到翻唱版 —— 与「歌词提前跑完」
+ * 是同一个坑（打分再好也抵不过再搜一次的不确定性）。按 ID 取链才能保住
+ * 用户看到的那一首。
+ */
 async function saveOne(s, quality) {
   const k = 'one:' + (s.id || s.title);
   busy.value = k; message.value = null;
   try {
-    const r = await api.play(s.title, s.artist, quality);
+    const r = await api.fetchById({
+      platform: s.platform,
+      songId: s.id,
+      title: s.title,
+      artist: s.artist,
+      album: s.album,
+      coverUrl: s.coverUrl,
+      duration: s.duration,
+    }, quality);
     message.value = r && r.ok
-      ? { ok: true, text: `已入库（${quality}）：${s.title}` }
+      ? { ok: true, text: `已加入下载队列（${quality}）：${s.title}` }
       : { ok: false, text: `入库失败：${(r && r.error) || '取链失败'}` };
   } catch (e) {
     message.value = { ok: false, text: '入库失败：' + e };
@@ -330,13 +345,22 @@ async function saveBatch(list, quality) {
   for (let i = 0; i < list.length; i++) {
     const s = list[i];
     try {
-      const r = await api.play(s.title, s.artist, quality);
+      // 与 saveOne 一致：按精确 ID 入库，避免重搜到翻唱版
+      const r = await api.fetchById({
+        platform: s.platform,
+        songId: s.id,
+        title: s.title,
+        artist: s.artist,
+        album: s.album,
+        coverUrl: s.coverUrl,
+        duration: s.duration,
+      }, quality);
       if (r && r.ok) ok++; else fail++;
     } catch { fail++; }
     message.value = { ok: true, text: `入库进度 ${i + 1}/${list.length}（成功 ${ok}，失败 ${fail}）` };
   }
   message.value = fail
-    ? { ok: false, text: `入库完成（${quality}）：成功 ${ok}，失败 ${fail}（部分曲目上游无版权）` }
-    : { ok: true, text: `入库完成（${quality}）：成功 ${ok} 首，可到「主页」查看` };
+    ? { ok: false, text: `入队完成（${quality}）：成功 ${ok}，失败 ${fail}（部分曲目上游无版权）` }
+    : { ok: true, text: `入库已入队（${quality}）：成功 ${ok} 首，到「主页」查看进度` };
 }
 </script>

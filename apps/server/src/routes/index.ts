@@ -306,6 +306,35 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     return { ok: true, ...r };
   });
 
+  /**
+   * 按**精确曲目 ID** 入库（不经过搜索打分）。
+   *
+   * 为什么需要它：/api/play 只吃 keyword + artist，会把推荐位带来的精确
+   * 平台 ID 丢掉，退化成「按歌名重新搜一遍」—— 于是很可能入库到翻唱版。
+   * 推荐 / 榜单里每首都自带 platform + id，直接按 ID 取链才能保住原唱。
+   */
+  app.post('/api/fetch-by-id', async (req) => {
+    const b = (req.body || {}) as any;
+    const platform = String(b?.platform || '').trim();
+    const id = String(b?.songId ?? b?.id ?? '').trim();
+    if (!platform || !id) return { ok: false, error: '缺少 platform / songId' };
+
+    const song = {
+      platform,
+      id,
+      title: String(b?.title || '').trim(),
+      artist: String(b?.artist || '').trim(),
+      album: b?.album ? String(b.album) : undefined,
+      coverUrl: b?.coverUrl ? String(b.coverUrl) : undefined,
+      duration: Number(b?.duration) || undefined,
+      // 取链时回传给脚本的原始信息；这里没有搜索原文，用自身兜底
+      raw: b?.raw ?? undefined,
+    };
+
+    const r = await d.orchestrator.fetchById(song as any, b?.quality);
+    return r.ok ? { ok: true, taskId: r.taskId } : { ok: false, error: r.error || '入库失败' };
+  });
+
   // ---------- 下载队列 ----------
   app.get('/api/downloads', async () => ({ queue: d.downloader.status(), logs: d.lib.recentLogs(30) }));
 
