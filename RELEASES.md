@@ -5,7 +5,7 @@
 本页是 **ToneCore 的版本索引**。GitHub Releases 侧栏按发布时间排序，本页按语义化版本号排序，
 避免后补的旧版本让版本顺序看起来错乱。
 
-**当前稳定版：** [v0.33.0](https://github.com/deltrivx/tonecore/releases/tag/v0.33.0)
+**当前稳定版：** [v0.33.1](https://github.com/deltrivx/tonecore/releases/tag/v0.33.1)
 
 > 本文件由 `scripts/gen_releases.py` 从 `CHANGELOG.md` 生成，修改请改 CHANGELOG 后重新生成。
 
@@ -13,6 +13,7 @@
 
 | Version | 日期 | 更新摘要 | 发布说明 |
 |---|---|---|---|
+| [v0.33.1](https://github.com/deltrivx/tonecore/releases/tag/v0.33.1) | 2026-10-03 | 修复封面补齐的匹配顺序 bug（先归一化把括号删了导致截后缀失效），覆盖率 15% → 85~100% | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.33.1.md) |
 | [v0.33.0](https://github.com/deltrivx/tonecore/releases/tag/v0.33.0) | 2026-10-03 | 更正 weapi 空响应根因（是我加密写错，非通道不通）；登录后的 eapi 取链接入音源引擎；酷我无封面改用网易云补齐 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.33.0.md) |
 | [v0.32.0](https://github.com/deltrivx/tonecore/releases/tag/v0.32.0) | 2026-10-03 | 网易云完整接入（eapi + 扫码登录）：个人歌单、个性化每日推荐、登录后高音质取链 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.32.0.md) |
 | [v0.31.0](https://github.com/deltrivx/tonecore/releases/tag/v0.31.0) | 2026-10-03 | 网易云音源自研直连（不依赖第三方脚本）；入库改为按精确曲目 ID（避免入库到翻唱版）；曲库页功能收纳 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.31.0.md) |
@@ -65,5 +66,5 @@
 
 ```bash
 docker pull ghcr.io/deltrivx/tonecore:latest   # 最新稳定版
-docker pull ghcr.io/deltrivx/tonecore:0.33.0    # 锁定版本
+docker pull ghcr.io/deltrivx/tonecore:0.33.1    # 锁定版本
 ```

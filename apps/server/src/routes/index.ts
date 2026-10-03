@@ -57,15 +57,34 @@ function backfillCovers(groups: Map<string, Song[]>): void {
   if (!wy || wy.length === 0) return;
 
   const norm = (s: string) =>
-    String(s || '').toLowerCase().replace(/[\s\-_（）()《》·、,，.。!！?？]/g, '');
+    String(s || '').toLowerCase().replace(/[\s\-_（）()《》·、,，.。!！?？|]/g, '');
+
+  /**
+   * 取「主标题」：**先**截掉第一个半角/全角括号之后的内容，**再**归一化。
+   *
+   * 为什么需要（实测）：酷我标题大量带版本后缀，
+   *   「稻香 (完整版|DJ Ray版)」「稻 香（堵桥版）」「稻香 (钢琴版)」
+   * 而网易那边是干净的「稻香」。只按完整标题精确匹配时 20 首只补上 3 首。
+   *
+   * ⚠️ 顺序必须是「先切括号 → 再归一化」，不能反过来：
+   * norm() 会把 （）() 当标点一并删掉，若先归一化，就再也找不到括号可切，
+   * base() 会退回返回整个字符串 —— 改进等于没做（实测新旧都是 15%）。
+   */
+  const base = (s: string): string => {
+    const raw = String(s || '');
+    const i = raw.search(/[(\uff08]/);
+    return norm(i > 0 ? raw.slice(0, i) : raw);
+  };
 
   const coverByKey = new Map<string, string>();
   for (const s of wy) {
     if (!s.coverUrl) continue;
     const t = norm(s.title);
-    // 先放「仅标题」再放「标题+歌手」，后者更精确，查找时优先用它
-    if (t) coverByKey.set(t, s.coverUrl);
-    coverByKey.set(t + '|' + norm(s.artist), s.coverUrl);
+    const b = base(s.title);
+    // 由粗到细建立索引：查找时从最精确往最粗回退
+    if (b) coverByKey.set('b:' + b, s.coverUrl);
+    if (t) coverByKey.set('t:' + t, s.coverUrl);
+    coverByKey.set('ta:' + t + '|' + norm(s.artist), s.coverUrl);
   }
 
   for (const [plat, list] of groups) {
@@ -73,7 +92,11 @@ function backfillCovers(groups: Map<string, Song[]>): void {
     for (const s of list) {
       if (s.coverUrl) continue;
       const t = norm(s.title);
-      const c = coverByKey.get(t + '|' + norm(s.artist)) || coverByKey.get(t);
+      const b = base(s.title);
+      // 优先精确（标题+歌手），其次完整标题，最后主标题
+      const c = coverByKey.get('ta:' + t + '|' + norm(s.artist))
+        || coverByKey.get('t:' + t)
+        || coverByKey.get('b:' + b);
       if (c) s.coverUrl = c;
     }
   }
