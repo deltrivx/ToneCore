@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { logger } from '../../logger.js';
 import { loadLxScript, type LxScriptInstance, type LxSourceInfo } from './lx-runtime.js';
 import { HealthTracker } from './health.js';
@@ -23,6 +24,8 @@ export interface SourceMeta {
   sources: Record<string, LxSourceInfo>;
   file: string;
   health: number;
+  /** 脚本来自哪套音源仓库：本地 / RoMusic / 飞牛 */
+  origin?: string;
   /** 加载状态：ok / failed / disabled */
   loadState?: 'ok' | 'failed' | 'disabled';
   /** 加载失败原因 */
@@ -32,18 +35,94 @@ export interface SourceMeta {
 }
 
 export class SourceLoader {
-  private scripts: (LxScriptInstance & { file: string })[] = [];
+  private scripts: (LxScriptInstance & { file: string; origin?: string })[] = [];
   private dir: string;
+  private extraDirs: string[] = [];
+  /** 文件名 → 来源标签（供界面显示"来自 RoMusic/飞牛"） */
+  private originByFile = new Map<string, string>();
   private health: HealthTracker;
   /** 被停用的脚本文件名（持久化到 data/source-disabled.json） */
   private disabled = new Set<string>();
   private disabledFile: string;
 
-  constructor(dir: string) {
+  constructor(dir: string, extraDirs: string[] = []) {
     this.dir = dir;
+    this.extraDirs = Array.isArray(extraDirs) ? extraDirs.filter(Boolean) : [];
     this.health = new HealthTracker();
     this.disabledFile = path.join(loadConfig().dataDir, 'source-disabled.json');
     this.loadDisabled();
+  }
+
+  /**
+   * 参与扫描的全部目录。主目录在前，附加目录在后 ——
+   * 去重复时保留靠前的，于是主目录的本地版本永远优先于外部副本。
+   */
+  private scanDirs(): Array<{ dir: string; origin: string }> {
+    const label = (d: string) => {
+      const b = path.basename(d.replace(/\/$/, ''));
+      if (/romusic/i.test(b)) return 'RoMusic';
+      if (/fnos|fnmusic/i.test(b)) return '飞牛';
+      return '外部';
+    };
+    return [
+      { dir: this.dir, origin: '本地' },
+      ...this.extraDirs.map((d) => ({ dir: d, origin: label(d) })),
+    ];
+  }
+
+  /**
+   * 收集候选脚本并按**内容 sha1** 去重。
+   *
+   * 为什么按内容而不是按文件名：实测三处仓库（本地 / RoMusic / 飞牛）
+   * 共 52 个文件里只有 23 份不同内容 —— 同名文件常常是同一份脚本的副本，
+   * 而少数同名不同内容的（如不同版本）确实要各留一份。
+   * 按文件名去重会误杀后者，按内容去重两者都对。
+   *
+   * @returns 去重后的候选（含绝对路径与来源标签）
+   */
+  private collectFiles(): Array<{ file: string; abs: string; origin: string }> {
+    const seen = new Map<string, { file: string; abs: string; origin: string }>();
+    for (const { dir, origin } of this.scanDirs()) {
+      if (!fs.existsSync(dir)) continue;
+      let files: string[] = [];
+      try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.js')); } catch { continue; }
+      for (const file of files) {
+        const abs = path.join(dir, file);
+        let hash: string;
+        try {
+          hash = crypto.createHash('sha1').update(fs.readFileSync(abs)).digest('hex');
+        } catch {
+          continue; // 读不动的文件直接跳过
+        }
+        // 同内容只留一份，且保留靠前目录的那份 —— 于是主目录的本地版本
+        // 永远优先于 RoMusic / 飞牛里的同名副本。
+        if (!seen.has(hash)) seen.set(hash, { file, abs, origin });
+      }
+    }
+    return [...seen.values()];
+  }
+
+  /**
+   * 并发加载，带上限。
+   *
+   * 为什么必须并发：脚本 init 可能要联网拉配置，单个最坏等 12s（见 lx-runtime）。
+   * 串行加载 23 个脚本最坏要 276s —— 启动慢到像卡死。
+   * 用 6 路并发把最坏耗时压到约 1/6。
+   */
+  private async mapLimit<T, R>(
+    items: T[], limit: number, fn: (it: T) => Promise<R>,
+  ): Promise<R[]> {
+    const out: R[] = new Array(items.length);
+    let i = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (true) {
+        const idx = i++;
+        if (idx >= items.length) return;
+        out[idx] = await fn(items[idx]);
+      }
+    });
+    await Promise.all(workers);
+    return out;
   }
 
   private loadDisabled(): void {
@@ -85,6 +164,7 @@ export class SourceLoader {
       name: s.name, platforms: s.platforms, sources: s.sources, file: s.file,
       health: Math.round(this.health.score(s.name)),
       loadState: 'ok' as const,
+      origin: s.origin ?? this.originByFile.get(s.file) ?? '本地',
     }));
   }
 
@@ -100,19 +180,26 @@ export class SourceLoader {
       name: s.name, platforms: s.platforms, sources: s.sources, file: s.file,
       health: Math.round(this.health.score(s.name)),
       loadState: 'ok' as const,
+      origin: s.origin ?? this.originByFile.get(s.file) ?? '本地',
     }));
     const okFiles = new Set(ok.map((s) => s.file));
 
     // 停用：文件在，但我们没加载它 → 手动构造成「已停用」条目
+    // 扫描范围同 collectFiles()（主目录 + 附加目录），否则外部仓库里
+    // 被停用的脚本会在界面上凭空消失。
     const disabled: SourceMeta[] = [];
-    if (fs.existsSync(this.dir)) {
-      for (const f of fs.readdirSync(this.dir).filter((x) => x.endsWith('.js'))) {
+    for (const { dir, origin } of this.scanDirs()) {
+      if (!fs.existsSync(dir)) continue;
+      let list: string[] = [];
+      try { list = fs.readdirSync(dir).filter((x) => x.endsWith('.js')); } catch { continue; }
+      for (const f of list) {
         if (!this.disabled.has(f) || okFiles.has(f)) continue;
         disabled.push({
           name: f.replace(/\.js$/, ''),
           platforms: [], sources: {}, file: f,
           health: -1,
           loadState: 'disabled' as const,
+          origin,
         });
       }
     }
@@ -144,11 +231,13 @@ export class SourceLoader {
     this.scripts.forEach((s) => { try { s.dispose(); } catch { /* ignore */ } });
     this.scripts = [];
 
-    if (!fs.existsSync(this.dir)) {
-      logger.warn({ dir: this.dir }, '音源目录不存在');
+    const raw = this.collectFiles();
+    if (raw.length === 0) {
+      logger.warn({ dir: this.dir, extra: this.extraDirs }, '音源目录不存在或无脚本');
       return;
     }
-    const files = fs.readdirSync(this.dir).filter((f) => f.endsWith('.js'));
+    // 收集全部候选文件名（供「清理幽灵条目」判断）
+    const files = raw.map((x) => x.file);
     // 目录里已不存在的脚本，清掉其历史记录（避免界面残留幽灵条目）
     for (const known of this.health.names()) {
       if (!files.includes(known)) this.health.forget(known);
@@ -157,30 +246,49 @@ export class SourceLoader {
     for (const d of [...this.disabled]) {
       if (!files.includes(d)) { this.disabled.delete(d); this.saveDisabled(); }
     }
-    for (const f of files) {
-      // 停用的脚本：不加载、不参与取链，但文件保留（界面仍可见并可重新启用）
-      if (this.disabled.has(f)) continue;
-      const full = path.join(this.dir, f);
+
+    // 停用的脚本：不加载、不参与取链，但文件保留（界面仍可见并可重新启用）
+    const todo = raw.filter((x) => !this.disabled.has(x.file));
+    this.originByFile = new Map(raw.map((x) => [x.file, x.origin]));
+
+    const results = await this.mapLimit(todo, 6, async (x) => {
       try {
-        const code = fs.readFileSync(full, 'utf8');
-        const inst = await loadLxScript(full, code);
+        const code = fs.readFileSync(x.abs, 'utf8');
+        const inst = await loadLxScript(x.abs, code);
         if (inst) {
-          this.scripts.push(Object.assign(inst, { file: f }));
-          this.health.recordLoaded(f, inst.platforms ?? []);
-        } else {
-          // 措辞要准确：绝大多数情况不是「缺 module.exports」，而是脚本要先联网
-          // 拉配置再上报 inited，却在等待窗口内没完成（上游慢/不可达/格式不兼容）。
-          this.health.recordLoadFailure(f, '脚本未上报 inited：联网初始化超时，或脚本格式与本运行时不兼容');
-          logger.warn({ file: f }, '音源加载失败：脚本未上报 inited');
+          return { ok: true as const, x, inst };
         }
+        // 措辞要准确：绝大多数情况不是「缺 module.exports」，而是脚本要先联网
+        // 拉配置再上报 inited，却在等待窗口内没完成（上游慢/不可达/格式不兼容）。
+        const msg = '脚本未上报 inited：联网初始化超时，或脚本格式与本运行时不兼容';
+        return { ok: false as const, x, msg };
       } catch (e) {
-        const msg = normalizeLoadError(String(e));
-        this.health.recordLoadFailure(f, msg);
-        logger.warn({ file: f, err: msg }, '音源加载失败');
+        return { ok: false as const, x, msg: normalizeLoadError(String(e)) };
+      }
+    });
+
+    for (const r of results) {
+      if (r.ok) {
+        // 用「来源+文件名」做去重键：同名脚本可能来自不同仓库且内容不同，
+        // 不能只按 name 覆盖，否则会丢实例。
+        this.scripts.push(Object.assign(r.inst, { file: r.x.file, origin: r.x.origin }));
+        this.health.recordLoaded(r.x.file, r.inst.platforms ?? []);
+      } else {
+        this.health.recordLoadFailure(r.x.file, r.msg);
+        logger.warn({ file: r.x.file, origin: r.x.origin, err: r.msg }, '音源加载失败');
       }
     }
+
     this.health.persist();
-    logger.info({ count: this.scripts.length, total: files.length, dir: this.dir }, '音源加载完成');
+    logger.info(
+      {
+        count: this.scripts.length,
+        candidates: todo.length,
+        deduped: raw.length,
+        dirs: [this.dir, ...this.extraDirs],
+      },
+      '音源加载完成',
+    );
   }
 
   /** 按平台筛可用脚本，按健康分降序 */

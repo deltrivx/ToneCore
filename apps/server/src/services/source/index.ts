@@ -121,7 +121,8 @@ export class SourceEngine {
 
   constructor() {
     const cfg = loadConfig();
-    this.loader = new SourceLoader(cfg.sourcesDir);
+    // 附加音源目录（RoMusic / 飞牛音乐扩展）并入，由 loader 按内容去重。
+    this.loader = new SourceLoader(cfg.sourcesDir, cfg.extraSourcesDirs);
     this.search = new SearchEngine();
     this.loadTests();
   }

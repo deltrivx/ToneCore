@@ -27,8 +27,19 @@ export interface ToneCoreCfg {
   downloadIntervalMs: number;
   /** 平台优先级（只放实际可用的平台；mg/kg 已因上游改版下线） */
   platforms: string[];
-  /** 音源脚本目录 */
+  /** 音源脚本目录（主目录，可读写：上传/停用都发生在这里） */
   sourcesDir: string;
+  /**
+   * 附加音源目录（只读并入）。
+   *
+   * 用于并入外部音源仓库。实测三处脚本都是同一套洛雪（LX）格式，可直接共用：
+   *   - Unraid 的 RoMusic（sources-romusic）
+   *   - 飞牛音乐扩展 fnmusic-ext 的 lxmusic uploads（sources-fnos）
+   *
+   * 并入后按**内容 sha1** 去重 —— 实测 52 个文件里只有 23 份不同内容，
+   * 不去重会加载出多个同名实例，抢同一批取链任务还互相拉低健康分。
+   */
+  extraSourcesDirs: string[];
   /** 日志级别 */
   logLevel: string;
 }
@@ -49,6 +60,7 @@ const DEFAULTS: ToneCoreCfg = {
   // 因此把 tx / wy 放前面，kw 靠后作为兜底。
   platforms: ['tx', 'wy', 'kw'],
   sourcesDir: '',
+  extraSourcesDirs: [],
   logLevel: 'info',
 };
 
@@ -118,6 +130,12 @@ function envOverrides(): Partial<ToneCoreCfg> {
 
   if (e.PATH_TEMPLATE) out.pathTemplate = e.PATH_TEMPLATE;
 
+  // 附加音源目录：用 : 分隔（容器 env 里分号容易被 shell/XML 吃掉，故用冒号）
+  if (e.EXTRA_SOURCES_DIRS) {
+    const list = e.EXTRA_SOURCES_DIRS.split(':').map((s) => s.trim()).filter(Boolean);
+    if (list.length) out.extraSourcesDirs = list;
+  }
+
   if (e.PLATFORMS) {
     const list = e.PLATFORMS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (list.length) out.platforms = list;
@@ -157,6 +175,19 @@ export function loadConfig(): ToneCoreCfg {
   merged.downloadIntervalMs = Math.max(0, Number(merged.downloadIntervalMs) || 0);
   merged.pathTemplate = merged.pathTemplate || DEFAULTS.pathTemplate;
   merged.sourcesDir = merged.sourcesDir || path.join(merged.dataDir, 'sources');
+  // 附加目录为空数组时也要保证是数组（config.yaml 里可能被写成 null/字符串）
+  if (!Array.isArray(merged.extraSourcesDirs)) {
+    const v = merged.extraSourcesDirs as unknown;
+    merged.extraSourcesDirs = typeof v === 'string' && v ? v.split(':').map((s) => s.trim()).filter(Boolean) : [];
+  }
+  // 未显式配置时，自动并入数据目录下已知的外部音源仓库。
+  // 这样并入 RoMusic / 飞牛音源**不需要改容器模板** —— 目录存在即生效。
+  if (merged.extraSourcesDirs.length === 0) {
+    const auto = ['sources-romusic', 'sources-fnos']
+      .map((d) => path.join(merged.dataDir, d))
+      .filter((d) => fs.existsSync(d));
+    if (auto.length) merged.extraSourcesDirs = auto;
+  }
 
   cached = merged;
   return cached;
@@ -197,6 +228,7 @@ export function lockedByEnv(): string[] {
   if (e.PATH_TEMPLATE) locked.push('pathTemplate');
   if (e.PLATFORMS) locked.push('platforms');
   if (e.LOG_LEVEL) locked.push('logLevel');
+  if (e.EXTRA_SOURCES_DIRS) locked.push('extraSourcesDirs');
   return locked;
 }
 

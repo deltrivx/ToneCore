@@ -42,7 +42,12 @@
       </div>
 
       <section v-for="b in boards" :key="b.id" class="space-y-2">
-        <h3 class="tc-section-title">推荐 · {{ b.name }}</h3>
+        <h3 class="tc-section-title">
+          推荐 · {{ b.name }}
+          <!-- 每日推荐是每天轮换的源，与固定榜单区分开 -->
+          <span v-if="b.tier === 'daily'" class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-accent-weak text-accent align-middle">每日更新</span>
+          <span v-if="b.desc" class="ml-1.5 text-[10px] text-fg-subtle align-middle font-normal">{{ b.desc }}</span>
+        </h3>
 
         <!-- 列表 -->
         <div v-if="view === 'list'" class="tc-panel divide-y divide-line">
@@ -57,7 +62,11 @@
             </div>
             <div class="min-w-0 flex-1">
               <div class="text-sm text-fg truncate">{{ s.title }}</div>
-              <div class="text-xs text-fg-muted truncate">{{ s.artist || '未知歌手' }}</div>
+              <div class="text-xs text-fg-muted truncate">
+                {{ s.artist || '未知歌手' }}
+                <!-- 网易给的推荐语，只有每日推荐才有 -->
+                <span v-if="s.reason" class="text-fg-subtle"> · {{ s.reason }}</span>
+              </div>
             </div>
             <span class="text-fg-subtle truncate hidden md:inline max-w-[160px] text-xs">{{ s.album }}</span>
           </div>
