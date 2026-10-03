@@ -14,6 +14,7 @@ import type { PlayerService, QueueItem, RepeatMode } from '../services/player/in
 import type { LyricsService } from '../services/player/lyrics.js';
 import type { AuthService } from '../services/auth/index.js';
 import type { NeteaseClient } from '../services/netease/client.js';
+import type { Song } from '../services/source/types.js';
 import { registerSongLoftRoutes } from './songloft.js';
 import { registerSubsonicRoutes } from './subsonic.js';
 
@@ -39,6 +40,45 @@ export interface Deps {
  * 前端可能送两种形态：搜索结果（有 platform/songId）或曲库条目（有 filePath）。
  * 这里统一补齐 uid / origin，避免这些判断散落到播放器各处。
  */
+/**
+ * 封面补齐：用网易云结果给其它平台补封面。
+ *
+ * 为什么需要（实测 2026-10-03，不是猜的）：
+ *   搜「稻香」→ kw 20 首**有封面 0 首**，wy 20 首**有封面 20 首**。
+ *   酷我搜索接口根本不返回封面地址（kw.ts 里连 cover 字段都没有，
+ *   而它的专辑图 URL 实测 404）。所以酷我结果在界面上永远是灰占位方块。
+ *
+ * 做法：同一份搜索结果里，网易云那组自带封面，
+ * 按「标题+歌手」归一化匹配后补给其它平台（优先精确匹配，退化为仅标题）。
+ * 不额外发网络请求 —— wy 组本来就在本次搜索里。
+ */
+function backfillCovers(groups: Map<string, Song[]>): void {
+  const wy = groups.get('wy');
+  if (!wy || wy.length === 0) return;
+
+  const norm = (s: string) =>
+    String(s || '').toLowerCase().replace(/[\s\-_（）()《》·、,，.。!！?？]/g, '');
+
+  const coverByKey = new Map<string, string>();
+  for (const s of wy) {
+    if (!s.coverUrl) continue;
+    const t = norm(s.title);
+    // 先放「仅标题」再放「标题+歌手」，后者更精确，查找时优先用它
+    if (t) coverByKey.set(t, s.coverUrl);
+    coverByKey.set(t + '|' + norm(s.artist), s.coverUrl);
+  }
+
+  for (const [plat, list] of groups) {
+    if (plat === 'wy') continue;
+    for (const s of list) {
+      if (s.coverUrl) continue;
+      const t = norm(s.title);
+      const c = coverByKey.get(t + '|' + norm(s.artist)) || coverByKey.get(t);
+      if (c) s.coverUrl = c;
+    }
+  }
+}
+
 let routeUid = 0;
 function normalizeQueueItem(s: any, _i: number): QueueItem {
   const filePath = s.filePath ? String(s.filePath) : undefined;
@@ -189,6 +229,8 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
       q.platforms ? String(q.platforms).split(',') : undefined,
       type,
     );
+    // 封面补齐：酷我（kw）搜索结果不带封面，用网易云结果按标题+歌手补上（见函数注释）
+    backfillCovers(groups);
     return {
       ok: true, keyword, type,
       platforms: Object.fromEntries([...groups].map(([k, v]) => [k, v.slice(0, 20)])),

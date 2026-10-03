@@ -8,6 +8,7 @@ import { fetchWyUrl } from '../search/platforms/wy-url.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Song, SongUrl } from './types.js';
+import type { NeteaseClient } from '../netease/client.js';
 
 export * from './types.js';
 export { SourceLoader } from './loader.js';
@@ -111,14 +112,57 @@ export function pickBest(cands: Song[], title: string, artist?: string): Song | 
   return bestScore >= 2.0 ? best : null;
 }
 
+/** 音质 → 网易 eapi 的 level（与 NEMbox QUALITY_LEVEL_MAP 对齐） */
+function levelForQuality(quality: string): string {
+  switch (quality) {
+    case 'master':
+    case 'flac24bit':
+      return 'hires';
+    case 'flac':
+      return 'lossless';
+    case '320k':
+      return 'exhigh';
+    case '128k':
+      return 'standard';
+    default:
+      return 'exhigh';
+  }
+}
+
+/**
+ * 由实际拿到的 br/type 反推本项目的音质标识。
+ *
+ * 为什么必须回读：未登录时请求 lossless 会被**静默降级**成 320k，
+ * 拿请求值当真实音质就会谎报。
+ */
+function qualityFromBr(br: number, type: string): string {
+  if (/flac/i.test(String(type || ''))) return 'flac';
+  if (br >= 320000) return '320k';
+  return '128k';
+}
+
 /**
  * 音源引擎：
  *   搜索 → SearchEngine（宿主自研，各平台公开 API）
- *   取链 → SourceLoader（洛雪脚本，action=musicUrl）
+ *   取链 → 已登录时优先走网易 eapi，否则自研直连，最后回退洛雪脚本
  */
 export class SourceEngine {
   private loader: SourceLoader;
   private search: SearchEngine;
+  /** 网易云客户端（懒加载：多数部署不登录，不必启动时就建） */
+  private netease: NeteaseClient | null = null;
+
+  private async getNetease(): Promise<NeteaseClient | null> {
+    if (this.netease) return this.netease;
+    try {
+      const { NeteaseClient } = await import('../netease/client.js');
+      this.netease = new NeteaseClient();
+      return this.netease;
+    } catch (e) {
+      logger.debug({ err: String(e).slice(0, 120) }, '网易云客户端初始化失败');
+      return null;
+    }
+  }
 
   constructor() {
     const cfg = loadConfig();
@@ -372,9 +416,28 @@ export class SourceEngine {
       const builtin = await fetchKwUrl(song, quality);
       if (builtin) return builtin;
     }
-    // 网易云：自研取链。为什么必须有 —— 它是搜索质量最好的主力平台，
+    // 网易云：已登录时优先走 eapi（有机会拿到更高音质），否则用自研直连。
+    // 自研直连为什么必须有 —— 它是搜索质量最好的主力平台，
     // 若只靠第三方脚本，脚本大面积失效时主力平台就没了。
     if (song.platform === 'wy') {
+      const ne = await this.getNetease();
+      if (ne && ne.isLoggedIn()) {
+        const id = Number(song.id);
+        if (Number.isInteger(id) && id > 0) {
+          try {
+            const r = await ne.songUrl(id, levelForQuality(quality));
+            if (r?.url) {
+              return {
+                url: r.url,
+                quality: qualityFromBr(r.br, r.type),
+                source: 'builtin:netease-eapi',
+              };
+            }
+          } catch (e) {
+            logger.debug({ err: String(e).slice(0, 120) }, '网易 eapi 取链失败，回退自研直连');
+          }
+        }
+      }
       const builtin = await fetchWyUrl(song, quality);
       if (builtin) return builtin;
     }

@@ -66,11 +66,20 @@ function rsaEncrypt(secret: Buffer): string {
 /**
  * 把一个 JS 对象加密成 weapi 的 form body 参数。
  *
+ * ⚠️ secret 必须是 **16 个 ASCII 十六进制字符**（不是 16 个原始随机字节）。
+ *
+ * 这是实测踩过的坑（2026-10-03）：NEMbox 的 create_key() 是
+ * `binascii.hexlify(os.urandom(16))[:16]` —— 先转成十六进制字符串再截 16 位，
+ * 得到的是 16 个 **ASCII 字符**（如 "a3f2..."）。若误写成 16 个原始随机字节，
+ * 密钥位数虽然也是 16，但字节内容不同，服务端解不出 secret，
+ * 于是**静默返回 HTTP 200 空响应体** —— 极难排查（状态码看着完全正常）。
+ *
  * @param obj 明文请求参数（会 JSON 序列化）
  * @returns { params, encSecKey } —— 直接作为 x-www-form-urlencoded 提交
  */
 export function weapi(obj: Record<string, unknown>): { params: string; encSecKey: string } {
-  const secret = crypto.randomBytes(16).subarray(0, 16);
+  // 与 NEMbox create_key(size) 保持一致：hexlify → 截 16 个 ASCII 字符
+  const secret = Buffer.from(crypto.randomBytes(16).toString('hex').slice(0, 16), 'utf8');
   const json = Buffer.from(JSON.stringify(obj), 'utf8');
   const first = Buffer.from(aesEncrypt(json, NONCE), 'utf8');
   const params = aesEncrypt(first, secret);
