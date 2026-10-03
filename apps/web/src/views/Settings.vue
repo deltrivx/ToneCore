@@ -140,6 +140,56 @@
 
       </div>
 
+      <!-- ============ 网易云账号（扫码登录）============
+           登录后：每日推荐变为个性化、可取个人歌单、有机会拿到更高音质。
+           ⚠️ cookie 只存服务端，界面与接口都不暴露凭据原文。 -->
+      <div class="tc-card p-4 space-y-3">
+        <div class="flex items-center justify-between border-b border-line pb-2">
+          <div class="text-sm font-medium text-fg-muted">网易云账号</div>
+          <span v-if="ne.loggedIn" class="tc-badge text-[10px]">已登录</span>
+          <span v-else class="text-[11px] text-fg-subtle">未登录</span>
+        </div>
+
+        <div v-if="ne.loggedIn" class="space-y-2">
+          <div class="text-sm text-fg">
+            {{ ne.nickname || ('用户 ' + ne.userId) }}
+          </div>
+          <div class="text-[11px] text-fg-subtle leading-relaxed">
+            已启用：个性化每日推荐、个人歌单读取、更高音质取链。
+          </div>
+          <button class="tc-btn text-xs" :disabled="neBusy" @click="neLogout">退出登录</button>
+        </div>
+
+        <div v-else-if="neQr.url" class="space-y-2">
+          <div class="flex gap-3 items-start">
+            <img :src="neQr.img" alt="网易云登录二维码"
+              class="w-32 h-32 rounded border border-line bg-white" />
+            <div class="text-[11px] text-fg-subtle leading-relaxed min-w-0">
+              <div class="text-fg mb-1">用网易云 App 扫码</div>
+              <div v-if="neQr.code === 801">等待扫码…</div>
+              <div v-else-if="neQr.code === 802" class="text-emerald-400">已扫码，请在手机上确认</div>
+              <div v-else-if="neQr.code === 800">二维码已过期，正在刷新…</div>
+              <div v-else>正在生成…</div>
+              <button class="tc-btn text-[11px] mt-2" @click="stopQr">取消</button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="space-y-2">
+          <div class="text-[11px] text-fg-subtle leading-relaxed">
+            未登录时：每日推荐是全网通用版（非个性化），个人歌单不可用，
+            无损会被降级为 320k。登录后即可解锁这些能力。
+          </div>
+          <button class="tc-btn-primary text-xs" :disabled="neBusy" @click="startQr">
+            {{ neBusy ? '处理中…' : '扫码登录网易云' }}
+          </button>
+        </div>
+
+        <div v-if="neMsg" class="text-xs" :class="neMsg.ok ? 'text-emerald-400' : 'text-rose-400'">
+          {{ neMsg.text }}
+        </div>
+      </div>
+
       <div class="tc-card p-4 space-y-3">
         <div class="text-sm font-medium text-fg-muted border-b border-line pb-2">关于</div>
 
@@ -212,6 +262,68 @@ const about = ref(null);
 
 const ICON = '/icon.png';
 
+// ---------- 网易云扫码登录 ----------
+const ne = ref({ loggedIn: false, nickname: '', userId: null });
+const neBusy = ref(false);
+const neMsg = ref(null);
+/** 二维码会话：url=二维码内容、img=二维码图、code=扫码状态 */
+const neQr = ref({ key: '', url: '', img: '', code: 0 });
+let neTimer = null;
+
+function stopQr() {
+  if (neTimer) { clearInterval(neTimer); neTimer = null; }
+  neQr.value = { key: '', url: '', img: '', code: 0 };
+}
+
+async function loadNeStatus() {
+  const r = await api.neteaseStatus();
+  if (r && r.ok) ne.value = { loggedIn: !!r.loggedIn, nickname: r.nickname || '', userId: r.userId || null };
+}
+
+/**
+ * 开始扫码登录。
+ *
+ * 轮询语义（与服务端一致）：800 过期 / 801 待扫码 / 802 待确认 / 803 成功。
+ * 二维码过期（800）自动重新拉一张，不需要用户手动再点一次。
+ */
+async function startQr() {
+  neBusy.value = true; neMsg.value = null;
+  try {
+    const r = await api.neteaseQr();
+    if (!r || !r.ok) { neMsg.value = { ok: false, text: (r && r.error) || '取二维码失败' }; return; }
+    neQr.value = { key: r.unikey, url: r.url, img: r.dataUrl || '', code: 801 };
+
+    if (neTimer) clearInterval(neTimer);
+    neTimer = setInterval(async () => {
+      const c = await api.neteaseQrCheck(neQr.value.key);
+      if (!c || !c.ok) return;
+      neQr.value.code = c.code;
+      if (c.code === 803) {
+        stopQr();
+        await loadNeStatus();
+        neMsg.value = { ok: true, text: '网易云登录成功' };
+      } else if (c.code === 800) {
+        // 过期：重新拉一张，继续等
+        const r2 = await api.neteaseQr();
+        if (r2 && r2.ok) neQr.value = { key: r2.unikey, url: r2.url, img: r2.dataUrl || '', code: 801 };
+      }
+    }, 3000);
+  } catch (e) {
+    neMsg.value = { ok: false, text: '取二维码失败：' + e };
+  } finally { neBusy.value = false; }
+}
+
+async function neLogout() {
+  neBusy.value = true; neMsg.value = null;
+  try {
+    await api.neteaseLogout();
+    await loadNeStatus();
+    neMsg.value = { ok: true, text: '已退出网易云登录' };
+  } catch (e) {
+    neMsg.value = { ok: false, text: '退出失败：' + e };
+  } finally { neBusy.value = false; }
+}
+
 // ---------- 账号管理 ----------
 const acct = ref({ username: '', nickname: '', currentPassword: '', password: '' });
 const acctBusy = ref(false);
@@ -268,5 +380,10 @@ onMounted(async () => {
   cfg.value = c;
   try { about.value = await api.health(); } catch { about.value = null; }
   await loadAccount();
+  try { await loadNeStatus(); } catch { /* 网易云状态失败不影响设置页 */ }
 });
+
+// 离开页面时务必停掉轮询，否则定时器泄漏、后台一直打接口
+import { onBeforeUnmount } from 'vue';
+onBeforeUnmount(() => { if (neTimer) clearInterval(neTimer); });
 </script>

@@ -62,6 +62,15 @@ export const api = {
   sourcesHealth: () => req('/api/sources/health'),
   home:          () => req('/api/home'),
   recommend:     () => req('/api/recommend'),
+
+  // ---------- 网易云（eapi，带登录态）----------
+  neteaseStatus:  () => req('/api/netease/status'),
+  neteaseQr:      () => req('/api/netease/qr', { method: 'POST' }),
+  neteaseQrCheck: (key) => req('/api/netease/qr/check?key=' + encodeURIComponent(key)),
+  neteaseLogout:  () => req('/api/netease/logout', { method: 'POST' }),
+  neteasePlaylists: () => req('/api/netease/playlists'),
+  neteasePlaylistTracks: (id) => req('/api/netease/playlist/' + encodeURIComponent(id) + '/tracks'),
+  neteaseRecommend: () => req('/api/netease/recommend'),
   libraryStats:  () => req('/api/library/stats'),
   sourceToggle: (file, enabled) => req('/api/sources/toggle', { method: 'POST', body: { file, enabled } }),
   sourceDelete: (file) => req('/api/sources/delete', { method: 'POST', body: { file } }),

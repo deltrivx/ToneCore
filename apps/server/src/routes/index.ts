@@ -13,6 +13,7 @@ import type { Orchestrator } from '../services/orchestrator.js';
 import type { PlayerService, QueueItem, RepeatMode } from '../services/player/index.js';
 import type { LyricsService } from '../services/player/lyrics.js';
 import type { AuthService } from '../services/auth/index.js';
+import type { NeteaseClient } from '../services/netease/client.js';
 import { registerSongLoftRoutes } from './songloft.js';
 import { registerSubsonicRoutes } from './subsonic.js';
 
@@ -26,6 +27,8 @@ export interface Deps {
   orchestrator: Orchestrator;
   player: PlayerService;
   lyrics: LyricsService;
+  /** 网易云客户端（eapi，带登录态：个人歌单 / 每日推荐 / 取链） */
+  netease: NeteaseClient;
   /** 对外访问地址（拼绝对直链用） */
   publicBase: () => string;
 }
@@ -333,6 +336,115 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
 
     const r = await d.orchestrator.fetchById(song as any, b?.quality);
     return r.ok ? { ok: true, taskId: r.taskId } : { ok: false, error: r.error || '入库失败' };
+  });
+
+  // ---------- 网易云（eapi，带登录态）----------
+  //
+  // ⚠️ cookie 含 MUSIC_U 等凭据：**绝不可**出现在任何响应或日志里。
+  // 下面所有接口只回「是否登录 / 昵称 / 歌单元数据」，不吐 cookie 原文。
+
+  /** 登录状态（不泄露任何凭据） */
+  app.get('/api/netease/status', async () => {
+    try {
+      const logged = d.netease.isLoggedIn();
+      const acc = logged ? await d.netease.account() : null;
+      return {
+        ok: true,
+        loggedIn: logged,
+        nickname: acc?.nickname || undefined,
+        userId: acc?.userId || undefined,
+      };
+    } catch (e) {
+      return { ok: false, loggedIn: false, error: String(e).slice(0, 160) };
+    }
+  });
+
+  /**
+   * 取二维码（返回 unikey、二维码内容 URL 与可直接渲染的 dataUrl）。
+   *
+   * 为什么服务端直接出图：前端没有二维码库，若只给 url 让前端自己生成，
+   * 就得再引一个前端依赖；服务端用 qrcode 生成 dataUrl，前端直接 <img> 即可。
+   */
+  app.post('/api/netease/qr', async () => {
+    const unikey = await d.netease.qrKey();
+    if (!unikey) return { ok: false, error: '取二维码失败（eapi 不可达或返回空）' };
+    const url = d.netease.qrUrl(unikey);
+    let dataUrl = '';
+    try {
+      const { toDataURL } = await import('qrcode');
+      dataUrl = await toDataURL(url, { width: 320, margin: 1 });
+    } catch (e) {
+      // 出图失败不该让登录流程整体不可用：前端可退化成展示 url 链接
+      logger.warn({ err: String(e).slice(0, 120) }, '二维码生成失败');
+    }
+    return { ok: true, unikey, url, dataUrl };
+  });
+
+  /** 轮询扫码状态：800 过期 / 801 待扫码 / 802 待确认 / 803 成功 */
+  app.get('/api/netease/qr/check', async (req) => {
+    const key = String((req.query as any)?.key || '').trim();
+    if (!key) return { ok: false, error: '缺少 key' };
+    const r = await d.netease.qrCheck(key);
+    return { ok: true, code: r.code, message: r.message, loggedIn: d.netease.isLoggedIn() };
+  });
+
+  /** 退出登录 */
+  app.post('/api/netease/logout', async () => {
+    await d.netease.logout();
+    return { ok: true, loggedIn: false };
+  });
+
+  /** 个人歌单（需登录） */
+  app.get('/api/netease/playlists', async () => {
+    if (!d.netease.isLoggedIn()) return { ok: false, error: '未登录网易云', playlists: [] };
+    try {
+      const playlists = await d.netease.playlists(50);
+      return { ok: true, playlists };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 160), playlists: [] };
+    }
+  });
+
+  /** 歌单曲目（需登录） */
+  app.get('/api/netease/playlist/:id/tracks', async (req) => {
+    if (!d.netease.isLoggedIn()) return { ok: false, error: '未登录网易云', tracks: [] };
+    const id = Number((req.params as any)?.id || 0);
+    if (!id) return { ok: false, error: '缺少歌单 id', tracks: [] };
+    try {
+      const ids = await d.netease.playlistTrackIds(id);
+      const songs = await d.netease.songDetails(ids.slice(0, 100));
+      const tracks = songs.map((s: any) => ({
+        id: String(s?.id ?? ''),
+        title: String(s?.name ?? ''),
+        artist: (s?.artists || []).map((a: any) => String(a?.name ?? '')).filter(Boolean).join('/'),
+        album: s?.album?.name ? String(s.album.name) : undefined,
+        coverUrl: s?.album?.picUrl ? String(s.album.picUrl) : undefined,
+        duration: Number(s?.duration ?? 0) / 1000 || undefined,
+        platform: 'wy',
+      })).filter((t: any) => t.id && t.title);
+      return { ok: true, tracks };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 160), tracks: [] };
+    }
+  });
+
+  /** 每日推荐（登录后为个性化；未登录是全网通用） */
+  app.get('/api/netease/recommend', async () => {
+    try {
+      const songs = await d.netease.recommendSongs();
+      const items = songs.map((s: any) => ({
+        id: String(s?.id ?? ''),
+        title: String(s?.name ?? ''),
+        artist: (s?.artists || s?.ar || []).map((a: any) => String(a?.name ?? '')).filter(Boolean).join('/'),
+        album: s?.album?.name ? String(s.album.name) : undefined,
+        coverUrl: s?.album?.picUrl ? String(s.album.picUrl) : undefined,
+        duration: Number(s?.duration ?? s?.dt ?? 0) / 1000 || undefined,
+        platform: 'wy',
+      })).filter((t: any) => t.id && t.title);
+      return { ok: true, personalized: d.netease.isLoggedIn(), items };
+    } catch (e) {
+      return { ok: false, error: String(e).slice(0, 160), items: [] };
+    }
   });
 
   // ---------- 下载队列 ----------

@@ -5,7 +5,7 @@
 本页是 **ToneCore 的版本索引**。GitHub Releases 侧栏按发布时间排序，本页按语义化版本号排序，
 避免后补的旧版本让版本顺序看起来错乱。
 
-**当前稳定版：** [v0.31.0](https://github.com/deltrivx/tonecore/releases/tag/v0.31.0)
+**当前稳定版：** [v0.32.0](https://github.com/deltrivx/tonecore/releases/tag/v0.32.0)
 
 > 本文件由 `scripts/gen_releases.py` 从 `CHANGELOG.md` 生成，修改请改 CHANGELOG 后重新生成。
 
@@ -13,6 +13,7 @@
 
 | Version | 日期 | 更新摘要 | 发布说明 |
 |---|---|---|---|
+| [v0.32.0](https://github.com/deltrivx/tonecore/releases/tag/v0.32.0) | 2026-10-03 | 网易云完整接入（eapi + 扫码登录）：个人歌单、个性化每日推荐、登录后高音质取链 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.32.0.md) |
 | [v0.31.0](https://github.com/deltrivx/tonecore/releases/tag/v0.31.0) | 2026-10-03 | 网易云音源自研直连（不依赖第三方脚本）；入库改为按精确曲目 ID（避免入库到翻唱版）；曲库页功能收纳 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.31.0.md) |
 | [v0.30.0](https://github.com/deltrivx/tonecore/releases/tag/v0.30.0) | 2026-10-03 | 音源并入 RoMusic 与飞牛音乐扩展（按内容去重）；曲库推荐改为网易云每日推荐+全量榜单 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.30.0.md) |
 | [v0.29.0](https://github.com/deltrivx/tonecore/releases/tag/v0.29.0) | 2026-09-30 | 修复歌词「提前跑完」：在线歌词按音频真实时长挑版本；顺带补齐曲库时长 | [详细说明](./docs/release-notes/RELEASE_NOTES_v0.29.0.md) |
@@ -63,5 +64,5 @@
 
 ```bash
 docker pull ghcr.io/deltrivx/tonecore:latest   # 最新稳定版
-docker pull ghcr.io/deltrivx/tonecore:0.31.0    # 锁定版本
+docker pull ghcr.io/deltrivx/tonecore:0.32.0    # 锁定版本
 ```

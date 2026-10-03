@@ -13,6 +13,7 @@ import { Scraper } from './services/scraper/index.js';
 import { Orchestrator } from './services/orchestrator.js';
 import { PlayerService } from './services/player/index.js';
 import { LyricsService } from './services/player/lyrics.js';
+import { NeteaseClient } from './services/netease/client.js';
 import { registerRoutes } from './routes/index.js';
 
 /** 探测本机对外 IPv4（用于生成直链绝对地址） */
@@ -48,6 +49,7 @@ async function main() {
   const orchestrator = new Orchestrator(engine, downloader, lib);
   const player = new PlayerService(engine, lib);
   const lyrics = new LyricsService();
+  const netease = new NeteaseClient();
 
   // 下载完成后的标签/封面/歌词补齐
   downloader.attachScraper(scraper);
@@ -66,7 +68,7 @@ async function main() {
     if (body === '' || body === undefined || body === null) return done(null, {});
     try { done(null, JSON.parse(body as string)); } catch (e) { done(e as Error); }
   });
-  await registerRoutes(app, { engine, downloader, lib, auth, scraper, orchestrator, player, lyrics, publicBase });
+  await registerRoutes(app, { engine, downloader, lib, auth, scraper, orchestrator, player, lyrics, netease, publicBase });
 
   const webDir = path.resolve(process.cwd(), 'public');
   if (fs.existsSync(webDir)) {
