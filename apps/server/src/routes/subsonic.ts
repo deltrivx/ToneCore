@@ -197,6 +197,96 @@ export async function registerSubsonicRoutes(app: FastifyInstance, d: Deps): Pro
     });
   });
 
+  /**
+   * 按目录浏览（getMusicDirectory）。
+   *
+   * 为什么补它：绝大多数 Subsonic 客户端（DSub / Substreamer / 音流 等）
+   * 拉目录树的第一个调用就是 getMusicDirectory，而此前只实现了 getIndexes。
+   * 缺它时客户端往往直接报「无法读取目录」而连不上。
+   *
+   * id 语义：
+   *   1 / 空            → 根（返回全部歌手）
+   *   ar-<hex>          → 该歌手的专辑
+   *   al-<hex>          → 该专辑的曲目
+   *   纯数字(歌曲 id)    → 该单曲
+   */
+  method('getMusicDirectory', (u, q, req, reply) => {
+    const id = String(q.id || '1').trim();
+
+    // 根：歌手列表
+    if (!id || id === '1') {
+      const idx = buildIndex();
+      const children = [...idx.values()].map((a) => ({
+        id: a.id,
+        parent: '1',
+        title: a.name,
+        album: '',
+        artist: a.name,
+        isDir: true,
+        coverArt: undefined,
+        playCount: 0,
+      }));
+      return ok({
+        directory: {
+          id: '1',
+          parent: undefined,
+          name: '音乐库',
+          child: children,
+        },
+      });
+    }
+
+    // 歌手：专辑列表
+    if (id.startsWith('ar-')) {
+      const idx = buildIndex();
+      for (const a of idx.values()) {
+        if (a.id !== id) continue;
+        return ok({
+          directory: {
+            id: a.id,
+            parent: '1',
+            name: a.name,
+            child: [...a.albums.values()].map((al) => ({
+              id: al.id,
+              parent: a.id,
+              title: al.name,
+              album: al.name,
+              artist: al.artist,
+              isDir: true,
+              coverArt: al.cover ? 'so-album-' + al.id : undefined,
+              playCount: 0,
+            })),
+          },
+        });
+      }
+      return fail(reply, 70, 'Directory not found');
+    }
+
+    // 专辑：曲目列表
+    if (id.startsWith('al-')) {
+      const idx = buildIndex();
+      for (const a of idx.values()) {
+        for (const al of a.albums.values()) {
+          if (al.id !== id) continue;
+          return ok({
+            directory: {
+              id: al.id,
+              parent: a.id,
+              name: al.name,
+              child: al.songs.map(songJson),
+            },
+          });
+        }
+      }
+      return fail(reply, 70, 'Directory not found');
+    }
+
+    // 兼容「直接传歌曲 id」
+    const s = d.lib.findById(Number(id));
+    if (s) return ok({ directory: { id: String(id), name: s.title, child: [songJson(s)] } });
+    return fail(reply, 70, 'Directory not found');
+  });
+
   method('getAlbumList2', (u, q) => {
     const idx = buildIndex();
     const all: any[] = [];

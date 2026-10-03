@@ -23,6 +23,70 @@
       职责分开后，两个页面的搜索框也不再语义混淆。
     -->
 
+    <!-- ============ 我的网易云歌单 ============
+         服务端接口（/api/netease/playlists）早已就绪，此前只是没有界面消费它 ——
+         这就是「未实现我的歌单」的真因：缺 UI，不缺接口。
+         参考飞牛的 nmplaylists：只读注入，不回写网易。 -->
+    <template v-if="myPlaylists.length">
+      <section class="space-y-2">
+        <h3 class="tc-section-title">
+          我的网易云歌单
+          <span class="ml-1.5 text-[10px] text-fg-subtle align-middle font-normal">只读 · 不会改动你的网易账号</span>
+        </h3>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <div v-for="pl in myPlaylists" :key="pl.id"
+            class="group cursor-pointer" @click="openPlaylist(pl)">
+            <div class="relative tc-cover-art">
+              <img v-if="pl.coverUrl" :src="pl.coverUrl" class="w-full h-full object-cover" loading="lazy" />
+              <div v-else class="w-full h-full flex items-center justify-center text-fg-subtle">
+                <Icon name="music" :size="30" />
+              </div>
+              <button class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55"
+                :title="`打开 ${pl.name}`">
+                <span class="rounded-full bg-accent text-fg-inverse w-10 h-10 flex items-center justify-center">
+                  <Icon name="play" :size="16" />
+                </span>
+              </button>
+            </div>
+            <div class="mt-1 truncate text-sm text-fg" :title="pl.name">{{ pl.name }}</div>
+            <div class="text-[10px] text-fg-subtle">{{ pl.trackCount }} 首</div>
+          </div>
+        </div>
+      </section>
+    </template>
+
+    <!-- 歌单详情（点开后展示曲目，可播放 / 加入队列 / 入库） -->
+    <template v-if="activePlaylist">
+      <section class="space-y-2">
+        <div class="flex items-center gap-2">
+          <h3 class="tc-section-title truncate">{{ activePlaylist.name }}</h3>
+          <button class="tc-btn text-xs" @click="closePlaylist">返回</button>
+          <span v-if="plLoading" class="text-[11px] text-fg-subtle">加载中…</span>
+        </div>
+        <div class="tc-panel divide-y divide-line">
+          <div v-for="(s, i) in activePlaylist.tracks" :key="s.id || i"
+            class="tc-row group cursor-pointer">
+            <div class="relative tc-cover tc-cover-sm">
+              <img v-if="s.coverUrl" :src="s.coverUrl" class="w-full h-full object-cover" loading="lazy" />
+              <Icon v-else name="music" :size="14" class="text-fg-subtle" />
+            </div>
+            <div class="min-w-0 flex-1" @click="playTrack(i)">
+              <div class="text-sm text-fg truncate">{{ s.title }}</div>
+              <div class="text-xs text-fg-muted truncate">{{ s.artist || '未知歌手' }}</div>
+            </div>
+            <span class="text-fg-subtle truncate hidden md:inline max-w-[160px] text-xs">{{ s.album }}</span>
+            <button class="tc-icon-btn tc-icon-btn-sm shrink-0 opacity-60 md:opacity-0 md:group-hover:opacity-100"
+              title="播放" @click.stop="playTrack(i)">
+              <Icon name="play" :size="14" />
+            </button>
+            <RowActions :items="rowActions(s)" :busy="busyId === s.id" @click.stop />
+          </div>
+        </div>
+        <div v-if="activePlaylist.tracks.length === 0 && !plLoading"
+          class="text-xs text-fg-subtle">这个歌单没有取到曲目（可能是无版权或接口限制）。</div>
+      </section>
+    </template>
+
     <!-- ============ 在线推荐（榜单）============
          曲库小的时候，本地那几个维度很快就没什么可推荐，所以补在线源。
          点卡片走在线播放链路（与在线搜索一致），不落库。
@@ -304,5 +368,54 @@ async function copyInfo(s) {
   }
 }
 
-onMounted(() => { loadRecommend(); });
+// ---------- 我的网易云歌单（只读，不回写网易）----------
+const myPlaylists = ref([]);
+const activePlaylist = ref(null);
+const plLoading = ref(false);
+/** 是否已登录网易云：未登录时也不该显示空白区块，故单独记录 */
+const neLoggedIn = ref(false);
+
+async function loadMyPlaylists() {
+  try {
+    const st = await api.neteaseStatus();
+    neLoggedIn.value = !!(st && st.loggedIn);
+    if (!neLoggedIn.value) { myPlaylists.value = []; return; }
+    const r = await api.neteasePlaylists();
+    myPlaylists.value = (r && r.playlists) || [];
+  } catch {
+    myPlaylists.value = [];
+  }
+}
+
+async function openPlaylist(pl) {
+  plLoading.value = true; message.value = null;
+  activePlaylist.value = { ...pl, tracks: [] };
+  try {
+    const r = await api.neteasePlaylistTracks(pl.id);
+    activePlaylist.value.tracks = (r && r.tracks) || [];
+    // 整张歌单灌进队列，才能连续播放与「下一首」
+    if (activePlaylist.value.tracks.length) {
+      await player.playList(activePlaylist.value.tracks, 0);
+    }
+  } catch (e) {
+    message.value = { ok: false, text: '读取歌单失败：' + e };
+  } finally { plLoading.value = false; }
+}
+
+function closePlaylist() { activePlaylist.value = null; }
+
+async function playTrack(index) {
+  const list = activePlaylist.value?.tracks || [];
+  if (!list.length) return;
+  message.value = null;
+  try {
+    const r = await player.playList(list, index);
+    if (!r || r.ok === false) message.value = { ok: false, text: (r && r.error) || '暂时取不到可播放地址' };
+    else if (!r.playUrl) message.value = { ok: false, text: `「${list[index].title}」取链失败，换一首试试` };
+  } catch (e) {
+    message.value = { ok: false, text: '播放失败：' + e };
+  }
+}
+
+onMounted(() => { loadRecommend(); loadMyPlaylists(); });
 </script>

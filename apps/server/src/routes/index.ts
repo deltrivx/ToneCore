@@ -102,6 +102,35 @@ function backfillCovers(groups: Map<string, Song[]>): void {
   }
 }
 
+/**
+ * 把网易云曲目对象归一成前端通用结构。
+ *
+ * 字段名实测（2026-10-04，不是猜的）：song/detail 返回的是
+ *   `ar`（歌手数组）/ `al`（专辑，含 picUrl）/ `dt`（毫秒）
+ * 而我先前按「artists / album / duration」去取 —— 结果歌手全空、封面全无
+ * （歌单能读出 100 首，但每首都缺歌手和封面）。
+ * 这里统一兼容两种写法，避免以后上游换字段再犯同样错误。
+ */
+function normalizeNeteaseSong(s: any): {
+  id: string; title: string; artist: string; album?: string;
+  coverUrl?: string; duration?: number; platform: string;
+} {
+  const artists = s?.ar || s?.artists || [];
+  const al = s?.al || s?.album || {};
+  const dt = Number(s?.dt ?? s?.duration ?? 0);
+  return {
+    id: String(s?.id ?? ''),
+    title: String(s?.name ?? s?.title ?? ''),
+    artist: Array.isArray(artists)
+      ? artists.map((a: any) => String(a?.name ?? '')).filter(Boolean).join('/')
+      : '',
+    album: al?.name ? String(al.name) : undefined,
+    coverUrl: al?.picUrl ? String(al.picUrl) : undefined,
+    duration: dt ? dt / 1000 : undefined,
+    platform: 'wy',
+  };
+}
+
 let routeUid = 0;
 function normalizeQueueItem(s: any, _i: number): QueueItem {
   const filePath = s.filePath ? String(s.filePath) : undefined;
@@ -478,15 +507,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
     try {
       const ids = await d.netease.playlistTrackIds(id);
       const songs = await d.netease.songDetails(ids.slice(0, 100));
-      const tracks = songs.map((s: any) => ({
-        id: String(s?.id ?? ''),
-        title: String(s?.name ?? ''),
-        artist: (s?.artists || []).map((a: any) => String(a?.name ?? '')).filter(Boolean).join('/'),
-        album: s?.album?.name ? String(s.album.name) : undefined,
-        coverUrl: s?.album?.picUrl ? String(s.album.picUrl) : undefined,
-        duration: Number(s?.duration ?? 0) / 1000 || undefined,
-        platform: 'wy',
-      })).filter((t: any) => t.id && t.title);
+      const tracks = songs.map((s: any) => normalizeNeteaseSong(s)).filter((t: any) => t.id && t.title);
       return { ok: true, tracks };
     } catch (e) {
       return { ok: false, error: String(e).slice(0, 160), tracks: [] };
@@ -497,15 +518,7 @@ export async function registerRoutes(app: FastifyInstance, d: Deps) {
   app.get('/api/netease/recommend', async () => {
     try {
       const songs = await d.netease.recommendSongs();
-      const items = songs.map((s: any) => ({
-        id: String(s?.id ?? ''),
-        title: String(s?.name ?? ''),
-        artist: (s?.artists || s?.ar || []).map((a: any) => String(a?.name ?? '')).filter(Boolean).join('/'),
-        album: s?.album?.name ? String(s.album.name) : undefined,
-        coverUrl: s?.album?.picUrl ? String(s.album.picUrl) : undefined,
-        duration: Number(s?.duration ?? s?.dt ?? 0) / 1000 || undefined,
-        platform: 'wy',
-      })).filter((t: any) => t.id && t.title);
+      const items = songs.map((s: any) => normalizeNeteaseSong(s)).filter((t: any) => t.id && t.title);
       return { ok: true, personalized: d.netease.isLoggedIn(), items };
     } catch (e) {
       return { ok: false, error: String(e).slice(0, 160), items: [] };
